@@ -81,15 +81,13 @@ hubble_rate(z::Union{Real,Vector{<:Real}}, cosmo::AbstractBaseCosmology = BASEPL
 # Definition of specific time quantities
 z_to_a(z::Union{Real,Vector{<:Real}}) = 1 ./(1 .+ z)
 a_to_z(a::Union{Real,Vector{<:Real}}) = 1 ./ a .- 1
-
+z_eq_mr(cosmo::AbstractBaseCosmology = BASEPLANCK18) = exp(find_zero( y -> Ω_r(exp(y), cosmo) - Ω_m(exp(y), cosmo), (-10, 10), Bisection())) 
+z_eq_Λm(cosmo::AbstractBaseCosmology = BASEPLANCK18) = exp(find_zero( y -> Ω_Λ(exp(y), cosmo) - Ω_m(exp(y), cosmo), (-10, 10), Bisection())) 
+a_eq_mr(cosmo::AbstractBaseCosmology = BASEPLANCK18) = z_to_a(z_eq_mr(cosmo))
+a_eq_Λm(cosmo::AbstractBaseCosmology = BASEPLANCK18) = z_to_a(z_eq_Λr(cosmo))
 cosmic_time_difference(a0, a1, cosmo::AbstractBaseCosmology = BASEPLANCK18; kws...) = QuadGK.quadgk(a -> a / hubble_evolution(a_to_z(a), cosmo), a0, a1; kws...)[1] / hubble_constant(cosmo)  |> s
 age(z=0, cosmo::AbstractBaseCosmology = BASEPLANCK18; kws...) = cosmic_time_difference(0, z_to_a(z), cosmo; kws...)
 lookback_time(z, cosmo::AbstractBaseCosmology = BASEPLANCK18; kws...) = cosmic_time_difference(z_to_a(z), 1, cosmo; kws...)
-
-z_eq_mr(cosmo::AbstractBaseCosmology = BASEPLANCK18) = exp(find_zero( y -> Ω_r(exp(y), cosmo) - Ω_m(exp(y), cosmo), (-10, 10), Bisection())) 
-z_eq_Λm(cosmo::AbstractBaseCosmology = BASEPLANCK18) = exp(find_zero( y -> Ω_Λ(exp(y), cosmo) - Ω_m(exp(y), cosmo), (-10, 10), Bisection())) 
-
-
 
 
 end # module Cosmology
