@@ -1,93 +1,111 @@
 module MyCosmology
 
 using QuadGK, Roots, Unitful
-import Unitful: km, s, Gyr, K
+import Unitful: km, s, Gyr, K, Temperature, DimensionlessQuantity, Density
 using UnitfulAstro: Mpc, Gpc, Msun
 import PhysicalConstants.CODATA2018: c_0, G as G_NEWTON
 
-export BASEPLANCK18, AbstractBaseCosmology
+export FLRWPLANCK18, FLRW
 
-abstract type AbstractBaseCosmology end
-abstract type AbstractBaseFlatCosmology <: AbstractBaseCosmology end
-abstract type AbstractFlatCosmology <: AbstractBaseFlatCosmology end
+@derived_dimension Mode dimension(1/km)
 
-# Define a structure for BaseFlatLCDM
-struct BaseFlatLCDM{T <: Real} <: AbstractBaseFlatCosmology
+abstract type Cosmology{T<:Real} end
+abstract type FLRW{T} <: Cosmology{T} end
+
+# Define a structure for FlatFLRW
+struct FlatFLRW{T} <: FLRW{T}
     
-    hubble_parameter::T # Hubble parameter
+    h::DimensionlessQuantity{T} # Hubble parameter
 
-    Ω_χ0::T
-    Ω_b0::T
-    Ω_m0::T
-    Ω_r0::T
-    Ω_γ0::T
-    Ω_ν0::T
-    Ω_Λ0::T
-    ρ_c0::Unitful.Density{T}
+    Ω_χ0::DimensionlessQuantity{T}
+    Ω_b0::DimensionlessQuantity{T}
+    Ω_m0::DimensionlessQuantity{T}
+    Ω_r0::DimensionlessQuantity{T}
+    Ω_γ0::DimensionlessQuantity{T}
+    Ω_ν0::DimensionlessQuantity{T}
+    Ω_Λ0::DimensionlessQuantity{T}
 
+    z_eq_mr::DimensionlessQuantity{T}
+    z_eq_Λm::DimensionlessQuantity{T}
+    
     # Quantity with units
-    T0_CMB::Unitful.Temperature{T}
+    ρ_c0::Density{T}
+    T0_CMB::Temperature{T}
 
 end
 
-# Constructor of the FlatBaseLCDM
-function BaseFlatLCDM(hubble_parameter::Real, Ω_χ0::Real, Ω_b0::Real, T0_CMB::Unitful.Temperature = 2.72548 * K, Neff::Real = 3.04)
+# First definition of the abundances
+Ω_m(z::Real, Ω_m0::Real, Ω_r0::Real, Ω_Λ0::Real) = (Ω_m0 * (1+z)^3) / (Ω_m0 * (1+z)^3 + Ω_r0 * (1+z)^4 + Ω_Λ0)
+Ω_r(z::Real, Ω_m0::Real, Ω_r0::Real, Ω_Λ0::Real) = (Ω_r0 * (1+z)^4) / (Ω_m0 * (1+z)^3 + Ω_r0 * (1+z)^4 + Ω_Λ0)
+Ω_Λ(z::Real, Ω_m0::Real, Ω_r0::Real, Ω_Λ0::Real) = Ω_Λ0  / (Ω_m0 * (1+z)^3 + Ω_r0 * (1+z)^4 + Ω_Λ0)
+
+# Constructor of the FlatBaseLCDM structure
+function FlatFLRW(h::Real, Ω_χ0::Real, Ω_b0::Real; T0_CMB::Unitful.Temperature{<:Real} = 2.72548 * K, Neff::Real = 3.04)
     
-    T0_CMB_K = Unitful.ustrip(K, T0_CMB) 
-
-    hubble_parameter, Ω_c0, Ω_b0, T0_CMB_K = promote(float(hubble_parameter), float(Ω_χ0), float(Ω_b0), float(T0_CMB_K))
-    T0_CMB = T0_CMB_K * K
-
     # Derived abundances
-    Ω_γ0 = 4.48131e-7 * T0_CMB_K^4 / hubble_parameter^2
+    Ω_γ0 = 4.48131e-7 / K^4 * T0_CMB^4 / h^2
     Ω_ν0 = Neff * Ω_γ0 * (7 / 8) * (4 / 11)^(4 / 3)
     Ω_r0 = Ω_γ0 + Ω_ν0
     Ω_m0 = Ω_χ0 + Ω_b0
     Ω_Λ0 = 1 - Ω_m0 - Ω_r0
  
-    ρ_c0 =  3/(8*π*G_NEWTON) * (hubble_parameter * 100 * km / s / Mpc )^2 |> Msun / Mpc^3
-    
-    return BaseFlatLCDM(hubble_parameter, Ω_χ0, Ω_b0, Ω_m0, Ω_r0, Ω_γ0, Ω_ν0, Ω_Λ0, ρ_c0, T0_CMB)
+    ρ_c0 =  3/(8*π*G_NEWTON) * (h * 100 * km / s / Mpc )^2 |> Msun / Mpc^3
+
+    z_eq_mr = 0.0
+    z_eq_Λm = 0.0
+
+    try
+        z_eq_mr = exp(find_zero( y -> Ω_r(exp(y), Ω_m0, Ω_r0, Ω_Λ0) - Ω_m(exp(y), Ω_m0, Ω_r0, Ω_Λ0), (-10, 10), Bisection())) 
+        z_eq_Λm = exp(find_zero( y -> Ω_Λ(exp(y), Ω_m0, Ω_r0, Ω_Λ0) - Ω_m(exp(y), Ω_m0, Ω_r0, Ω_Λ0), (-10, 10), Bisection())) 
+    catch e
+        println("Impossible to definez z_eq_mr and/or z_eq_Λm for this cosmology")
+        println("Error: ", e)
+    end
+
+    return FlatFLRW(promote(h, Ω_χ0, Ω_b0, Ω_m0, Ω_r0, Ω_γ0, Ω_ν0, Ω_Λ0, z_eq_mr, z_eq_Λm, ρ_c0, T0_CMB)...)
     
 end
 
-BASEPLANCK18 = BaseFlatLCDM(0.6736, 0.26447, 0.04930)
 
-T_CMB(z::Union{Real,Vector{<:Real}}, cosmo::AbstractBaseCosmology = BASEPLANCK18) = cosmo.T0_CMB .* (1 .+ z)
-hubble_constant(cosmo::AbstractBaseCosmology = BASEPLANCK18) = cosmo.hubble_parameter * 100 * km / s / Mpc
-hubble_evolution(z::Union{Real,Vector{<:Real}}, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. sqrt(cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-hubble_rate(z::Union{Real,Vector{<:Real}}, cosmo::AbstractBaseCosmology = BASEPLANCK18) = hubble_evolution(z, cosmo) .* hubble_constant(cosmo)
+# global constant defining the cosmology used
+const FLRWPLANCK18::FlatFLRW = FlatFLRW(0.6736, 0.26447, 0.04930)
+const EDSPLANCK18::FlatFLRW  = FlatFLRW(0.6736, 0.3, 0) 
 
-ρ_c(z::Union{Real,Vector{<:Real}}, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. cosmo.ρ_c0 * (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+
+T_CMB(z::Real, cosmo::Cosmology = FLRWPLANCK18) = cosmo.T0_CMB * (1 .+ z)
+hubble_constant(cosmo::Cosmology = FLRWPLANCK18) = cosmo.h * 100 * km / s / Mpc
+hubble_evolution(z::Real, cosmo::Cosmology = FLRWPLANCK18) = sqrt(cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+hubble_rate(z::Real, cosmo::Cosmology = FLRWPLANCK18) = hubble_evolution(z, cosmo) .* hubble_constant(cosmo) 
+
+ρ_c(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = cosmo.ρ_c0 * (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
 
 # Definition of the densities
-ρ_r(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. cosmo.Ω_r0 * cosmo.ρ_c0 * (1+z)^4
-ρ_γ(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. cosmo.Ω_γ0 * cosmo.ρ_c0 * (1+z)^4
-ρ_ν(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. cosmo.Ω_ν0 * cosmo.ρ_c0 * (1+z)^4
-ρ_m(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. cosmo.Ω_m0 * cosmo.ρ_c0 * (1+z)^3
-ρ_χ(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. cosmo.Ω_χ0 * cosmo.ρ_c0 * (1+z)^3
-ρ_b(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. cosmo.Ω_b0 * cosmo.ρ_c0 * (1+z)^3
-ρ_Λ(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = repeat([cosmo.Ω_Λ0 * cosmo.ρ_c0], length(z))
+ρ_r(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = cosmo.Ω_r0 * cosmo.ρ_c0 * (1+z)^4
+ρ_γ(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = cosmo.Ω_γ0 * cosmo.ρ_c0 * (1+z)^4
+ρ_ν(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = cosmo.Ω_ν0 * cosmo.ρ_c0 * (1+z)^4
+ρ_m(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = cosmo.Ω_m0 * cosmo.ρ_c0 * (1+z)^3
+ρ_χ(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = cosmo.Ω_χ0 * cosmo.ρ_c0 * (1+z)^3
+ρ_b(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = cosmo.Ω_b0 * cosmo.ρ_c0 * (1+z)^3
+ρ_Λ(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = cosmo.Ω_Λ0 * cosmo.ρ_c0
 
-# Definition of the abundances
-Ω_r(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. (cosmo.Ω_r0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω_γ(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. (cosmo.Ω_γ0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω_ν(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. (cosmo.Ω_ν0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω_m(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. (cosmo.Ω_m0 * (1+z)^3) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω_χ(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. (cosmo.Ω_χ0 * (1+z)^3) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω_b(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. (cosmo.Ω_b0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω_Λ(z::Union{Real,Vector{<:Real}} = 0, cosmo::AbstractBaseCosmology = BASEPLANCK18) = @. cosmo.Ω_Λ0 / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω_r(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = (cosmo.Ω_r0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω_γ(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = (cosmo.Ω_γ0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω_ν(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = (cosmo.Ω_ν0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω_m(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = (cosmo.Ω_m0 * (1+z)^3) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω_χ(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = (cosmo.Ω_χ0 * (1+z)^3) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω_b(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = (cosmo.Ω_b0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω_Λ(z::Real = 0, cosmo::Cosmology = FLRWPLANCK18) = cosmo.Ω_Λ0 / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
 
 # Definition of specific time quantities
-z_to_a(z::Union{Real,Vector{<:Real}}) = 1 ./(1 .+ z)
-a_to_z(a::Union{Real,Vector{<:Real}}) = 1 ./ a .- 1
-z_eq_mr(cosmo::AbstractBaseCosmology = BASEPLANCK18) = exp(find_zero( y -> Ω_r(exp(y), cosmo) - Ω_m(exp(y), cosmo), (-10, 10), Bisection())) 
-z_eq_Λm(cosmo::AbstractBaseCosmology = BASEPLANCK18) = exp(find_zero( y -> Ω_Λ(exp(y), cosmo) - Ω_m(exp(y), cosmo), (-10, 10), Bisection())) 
-a_eq_mr(cosmo::AbstractBaseCosmology = BASEPLANCK18) = z_to_a(z_eq_mr(cosmo))
-a_eq_Λm(cosmo::AbstractBaseCosmology = BASEPLANCK18) = z_to_a(z_eq_Λr(cosmo))
-cosmic_time_difference(a0, a1, cosmo::AbstractBaseCosmology = BASEPLANCK18; kws...) = QuadGK.quadgk(a -> a / hubble_evolution(a_to_z(a), cosmo), a0, a1; kws...)[1] / hubble_constant(cosmo)  |> s
-age(z=0, cosmo::AbstractBaseCosmology = BASEPLANCK18; kws...) = cosmic_time_difference(0, z_to_a(z), cosmo; kws...)
-lookback_time(z, cosmo::AbstractBaseCosmology = BASEPLANCK18; kws...) = cosmic_time_difference(z_to_a(z), 1, cosmo; kws...)
+z_to_a(z::Real) = 1 ./(1 .+ z)
+a_to_z(a::Real) = 1 ./ a .- 1
+z_eq_mr(cosmo::Cosmology = FLRWPLANCK18) = cosmo.z_eq_mr
+z_eq_Λm(cosmo::Cosmology = FLRWPLANCK18) = cosmo.z_eq_Λm
+a_eq_mr(cosmo::Cosmology = FLRWPLANCK18) = z_to_a(cosmo.z_eq_mr)
+a_eq_Λm(cosmo::Cosmology = FLRWPLANCK18) = z_to_a(cosmo.z_eq_Λm)
+cosmic_time_difference(a0, a1, cosmo::Cosmology = FLRWPLANCK18; kws...) = QuadGK.quadgk(a -> a / hubble_evolution(a_to_z(a), cosmo), a0, a1; kws...)[1] / hubble_constant(cosmo)  |> s
+age(z=0, cosmo::Cosmology = FLRWPLANCK18; kws...) = cosmic_time_difference(0, z_to_a(z), cosmo; kws...)
+lookback_time(z, cosmo::Cosmology = FLRWPLANCK18; kws...) = cosmic_time_difference(z_to_a(z), 1, cosmo; kws...)
 
 
 end # module Cosmology
