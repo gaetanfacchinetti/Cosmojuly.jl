@@ -11,10 +11,10 @@ export FLRWPLANCK18, FLRW
 @derived_dimension Mode dimension(1/km)
 
 abstract type Cosmology{T<:Real} end
-abstract type FLRW{T} <: Cosmology{T} end
+abstract type FLRW{T<:Real} <: Cosmology{T} end
 
 # Define a structure for FlatFLRW
-struct FlatFLRW{T} <: FLRW{T}
+struct FlatFLRW{T<:Real} <: FLRW{T}
     
     h::DimensionlessQuantity{T} # Hubble parameter
 
@@ -107,6 +107,7 @@ a_eq_Λm(cosmo::Cosmology = FLRWPLANCK18) = z_to_a(cosmo.z_eq_Λm)
 cosmic_time_difference(a0, a1, cosmo::Cosmology = FLRWPLANCK18; kws...) = QuadGK.quadgk(a -> a / hubble_evolution(a_to_z(a), cosmo), a0, a1; kws...)[1] / hubble_constant(cosmo)  |> s
 age(z=0, cosmo::Cosmology = FLRWPLANCK18; kws...) = cosmic_time_difference(0, z_to_a(z), cosmo; kws...)
 lookback_time(z, cosmo::Cosmology = FLRWPLANCK18; kws...) = cosmic_time_difference(z_to_a(z), 1, cosmo; kws...)
+
 
 
 end # module Cosmology
