@@ -35,7 +35,7 @@ NFWProfile = αβγProfile(1, 3, 1)
 # Otherwise unit conversion slightly slow down the code
 
 ## Definition of relationships between concentration, mass, scale density and scale radius
-function cΔ_from_ρs(ρs::Density{<:Real}, p::HaloProfile = NFWProfile, Δ::Real = 200, ρ_ref::Density{<:Real} = FLRWPLANCK18.ρ_c0 )
+function cΔ_from_ρs(ρs::Density{<:Real}, p::HaloProfile = NFWProfile, Δ::Real = 200, ρ_ref::Density{<:Real} = FLRWPLANCK18.ρ_c0)
     g(c) = c^3 / μ(c, p) - 3 * ρs / Δ / ρ_ref
     Roots.find_zero(g, (1e-10, 1e+10), Bisection()) 
 end
