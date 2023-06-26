@@ -1,15 +1,21 @@
+
 module TransferFunction
 
-include("../src/MyCosmology.jl")
+include("./MyCosmology.jl")
 
-using .MyCosmology
+import Main.MyCosmology: Cosmology, z_eq_mr, k_eq_mr_Mpc, planck18
 
 abstract type ParametersTF{T<:Real} end
 
 struct ParametersEH98{T<:Real} <: ParametersTF{T}
     
-    with_baryons::Bool
-    cosmo::Cosmology{T}
+    # Parameters directly related to the Cosmology
+    Ω_m0_h2::T
+    Ω_b0_h2::T
+    Ω_χ0_h2::T
+    Θ27::T
+
+    # Derived parameters
     z_drag::T
     sound_horizon_Mpc::T
     α_c::T
@@ -22,13 +28,15 @@ end
 
 g_func(y::Real)::Real = -6.0*sqrt(1.0+y)+(2.0+3.0*y)*log((sqrt(1.0+y)+1)/(sqrt(1.0+y)-1.0)) * y
 
-function ParametersEH98(with_baryons::Bool, cosmo::Cosmology{<:Real}, ::Type{T} = Float64) where {T<:Real}
-    
-    Ω_m0_h2 = cosmo.Ω_m0 * cosmo.h^2
-    Ω_b0_h2 = cosmo.Ω_b0 * cosmo.h^2
-    Ω_χ0_h2 = cosmo.Ω_χ0 * cosmo.h^2
 
-    Θ27 = cosmo.T0_CMB_K / 2.7
+function ParametersEH98(cosmo::Cosmology{<:Real}, ::Type{T} = Float64) where {T<:Real}
+
+
+    Ω_m0_h2::T = cosmo.Ω_m0 * cosmo.h^2
+    Ω_b0_h2::T = cosmo.Ω_b0 * cosmo.h^2
+    Ω_χ0_h2::T = cosmo.Ω_χ0 * cosmo.h^2
+
+    Θ27::T = cosmo.T0_CMB_K / 2.7
     z_eq = z_eq_mr(cosmo)
     k_eq_Mpc = k_eq_mr_Mpc(cosmo)
 
@@ -50,53 +58,50 @@ function ParametersEH98(with_baryons::Bool, cosmo::Cosmology{<:Real}, ::Type{T} 
     # β_c
     b1_2::T = 0.944 / (1+(458.0*Ω_m0_h2)^(-0.708))
     b2_2::T = (0.395 * Ω_m0_h2)^(-0.0266)
-    β_c::T  = 1.0 / (1.0 + b1_2 * ((Ω_χ0_h2/Ω_m0_h2)^b2_2 -.01))
+    β_c::T  = 1.0 / (1.0 + b1_2 * ((Ω_χ0_h2/Ω_m0_h2)^b2_2 - 1.0))
 
     # k_silk, α_b, and β_b
     k_Silk_Mpc::T = 1.6 * ( Ω_b0_h2^0.52 ) * (Ω_m0_h2^0.73 ) * ( 1.0 + (10.4 * Ω_m0_h2)^(-0.95) )
-    α_b::T = 2.07 * k_eq_Mpc * sound_horizon_Mpc * (1.0 + R_drag)^(-0.75) * g_func( (1.0 + z_eq) / (1.0 + z_drag) )
+    α_b::T = 2.07 * k_eq_Mpc * sound_horizon_Mpc * (1.0 + R_drag)^(-3.0/4.0) * g_func( (1.0 + z_eq) / (1.0 + z_drag) )
     β_b::T = 0.5 + Ω_b0_h2 / Ω_m0_h2 + (3.0 - 2.0 * Ω_b0_h2/Ω_m0_h2) * sqrt( 1.0 + (17.2 * Ω_m0_h2)^2 )
 
-    return ParametersEH98(with_baryons, convert_cosmo(T, cosmo), z_drag, sound_horizon_Mpc, α_c, α_b, β_c, β_b, k_Silk_Mpc)
+    return ParametersEH98(Ω_m0_h2, Ω_b0_h2, Ω_χ0_h2, Θ27, z_drag, sound_horizon_Mpc, α_c, α_b, β_c, β_b, k_Silk_Mpc)
 end
 
+const parametersEH98_planck18 = ParametersEH98(planck18)
 
-const parametersEH98_planck18_wi_baryons = ParametersEH98(true, planck18)
-const parametersEH98_planck18_wo_baryons = ParametersEH98(false, planck18)
-
-function temperature_0_tilde(q::Real, α_c::Real, β_c::Real)::Real
+function transfer_0_tilde(q::Real, α_c::Real, β_c::Real)::Real
     C = 14.2 / α_c + 386.0 / (1.0 + 69.9 * q^1.08 )
     return log(exp(1.0) + 1.8 * β_c * q ) / (log(exp(1.0) + 1.8 * β_c * q) + C * q^2)
 end 
 
-shape_parameter(k_Mpc::Real, p::ParametersEH98)::Real = k_Mpc * (p.cosmo.T0_CMB_K / 2.7)^2 / (p.cosmo.Ω_m0 * p.cosmo.h^2)
+shape_parameter(k_Mpc::Real, p::ParametersEH98)::Real = k_Mpc * p.Θ27^2 / p.Ω_m0_h2
 
-function temperature_cdm(k_Mpc::Real, p::ParametersEH98)::Real
+function transfer_cdm(k_Mpc::Real, p::ParametersEH98)::Real
     q = shape_parameter(k_Mpc, p)
-    t0_1 = temperature_0_tilde(q, 1.0, p.β_c)
-    t0_2 = temperature_0_tilde(q, p.α_c, p.β_c)
     f = 1.0 / (1.0  +  (k_Mpc * p.sound_horizon_Mpc / 5.4)^4)
 
-    return f * t0_1 + (1-f) * t0_2
+    return f * transfer_0_tilde(q, 1.0, p.β_c) + (1.0 - f) * transfer_0_tilde(q, p.α_c, p.β_c)
 end
 
 function s_tilde_Mpc(k_Mpc::Real, p::ParametersEH98)::Real
-    β_node = 8.41 * (p.cosmo.Ω_m0 * p.cosmo.h^2)^0.435
-    return p.sound_horizon_Mpc * (1.0 + (β_node/(k_Mpc * p.sound_horizon_Mpc))^3 )^1.0/3.0
+    β_node = 8.41 * (p.Ω_m0_h2)^0.435
+    return p.sound_horizon_Mpc * (1.0 + (β_node/(k_Mpc * p.sound_horizon_Mpc))^3 )^(-1.0/3.0)
 end
 
-function temperature_baryons(k_Mpc::Real, p::ParametersEH98)::Real
+function transfer_baryons(k_Mpc::Real, p::ParametersEH98)::Real
     q = shape_parameter(k_Mpc, p)
-    j0 = sinc(k_Mpc * s_tilde_Mpc(k_Mpc, p))
-    return j0 * temperature_0_tilde(q, 1.0, 1.0) / (1.0 + (k_Mpc * p.sound_horizon_Mpc/5.2)^2 ) + p.α_b/(1.0 + (p.β_b / (k_Mpc * p.sound_horizon_Mpc))^3 ) * exp(-(k_Mpc/p.k_Silk_Mpc)^1.4)
+    j0 = sinc(k_Mpc * s_tilde_Mpc(k_Mpc, p) / π)
+    ks = k_Mpc * p.sound_horizon_Mpc
+    return j0 * (transfer_0_tilde(q, 1.0, 1.0) / (1.0 + (ks /5.2)^2 ) + p.α_b * exp(-(k_Mpc/p.k_Silk_Mpc)^1.4) / (1.0 + (p.β_b/ks)^3 ) )
 end
 
-function transfer_function(k_Mpc::Real, p::ParametersEH98 = parametersEH98_planck18_wi_baryons)::Real
-    tc = temperature_cdm(k_Mpc, p)
-    tb = temperature_baryons(k_Mpc, p)
-    return p.with_baryons ? abs(p.cosmo.Ω_b0 / p.cosmo.Ω_m0 * tb + p.cosmo.Ω_χ0/p.cosmo.Ω_m0 * tc) : abs(p.cosmo.Ω_χ0 / p.cosmo.Ω_m0 * tc)
+function transfer_function(k_Mpc::Real, p::ParametersEH98 = parametersEH98_planck18; with_baryons::Bool = true)::Real
+    tc = transfer_cdm(k_Mpc, p)
+    tb = transfer_baryons(k_Mpc, p)
+    return with_baryons ? p.Ω_b0_h2 / p.Ω_m0_h2 * tb + p.Ω_χ0_h2/p.Ω_m0_h2 * tc : p.Ω_χ0_h2 / p.Ω_m0_h2 * tc
 end
 
-function transfer_function(k_Mpc::Real, p::ParametersTF{<:Real})::Real end
+function transfer_function(k_Mpc::Real, p::ParametersTF{<:Real}; with_baryons::Bool = true)::Real end
 
 end # module TransferFunction

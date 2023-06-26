@@ -5,8 +5,10 @@ import Unitful: km, s, Gyr, K
 import UnitfulAstro: Mpc, Gpc, Msun
 import PhysicalConstants.CODATA2018: c_0, G as G_NEWTON
 
-export Cosmology, planck18, convert_cosmo, FlatFLRW
-export z_eq_mr, z_eq_Λm, z_to_a, a_to_z, universe_age, temperature_CMB_K, k_eq_mr_Mpc
+#export planck18, convert_cosmo, FlatFLRW
+#export hubble_constant
+#export z_eq_mr, z_eq_Λm, z_to_a, a_to_z, universe_age, temperature_CMB_K, k_eq_mr_Mpc
+#export growth_factor, growth_factor_Carroll
 
 abstract type Cosmology{T<:Real} end
 abstract type FLRW{T<:Real} <: Cosmology{T} end
@@ -147,9 +149,47 @@ z_eq_mr(cosmo::Cosmology = planck18)::Real = cosmo.z_eq_mr
 z_eq_Λm(cosmo::Cosmology = planck18)::Real = cosmo.z_eq_Λm
 a_eq_mr(cosmo::Cosmology = planck18)::Real = z_to_a(cosmo.z_eq_mr)
 a_eq_Λm(cosmo::Cosmology = planck18)::Real = z_to_a(cosmo.z_eq_Λm)
-δt_s(a0, a1, cosmo::Cosmology = planck18; kws...)::Real = QuadGK.quadgk(a -> 1 / hubble_evolution(a_to_z(a), cosmo) / a, a0, a1, rtol=1e-3; kws...)[1] / (hubble_constant(cosmo) * km / Mpc)
+δt_s(a0, a1, cosmo::Cosmology = planck18; kws...)::Real = QuadGK.quadgk(a -> 1.0 / hubble_evolution(a_to_z(a), cosmo) / a, a0, a1, rtol=1e-3; kws...)[1] / (hubble_constant(cosmo) * km / Mpc)
 universe_age(z=0, cosmo::Cosmology = planck18; kws...)::Real = δt_s(0, z_to_a(z), cosmo; kws...)
 lookback_time(z, cosmo::Cosmology = planck18; kws...)::Real = δt_s(z_to_a(z), 1, cosmo; kws...)
+#########################################################
+
+
+#########################################################
+# Functions related to perturbations
+"""
+    growth_factor(z, cosmo)
+
+    Exact growth factor in a matter-Λ Universe computed from an integral
+    Carroll et al. 1992 (Mo and White p. 172)
+    Corresponds to D1(a=1) with the definition of Dodelson 2003
+
+# Arguments
+- z: redshift
+- cosmo: background cosmology (default Planck18)
+"""
+function growth_factor(z::Real, cosmo::Cosmology = planck18, kws...)::Real
+    norm = 2.5 * cosmo.Ω_m0 * sqrt(cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_Λ0)
+    return norm * QuadGK.quadgk(a -> (cosmo.Ω_m0 * a^(-1) + cosmo.Ω_Λ0 * a^2)^(-3/2), 0, z_to_a(z), rtol=1e-3; kws...)[1]
+end
+
+"""
+    growth_factor_Carroll(z, cosmo)
+
+    Approximate growth factor in a matter-Λ Universe (faster than growth_factor)
+    Carroll et al. 1992 (Mo and White p. 172)
+    Corresponds to D1(a=1) with the definition of Dodelson 2003
+
+# Arguments
+- z: redshift
+- cosmo: background cosmology (default Planck18)
+"""
+function growth_factor_Carroll(z::Real, cosmo=Cosmology = planck18)::Real
+    # Abundances in a Universe with no radiation
+    _Ω_m = cosmo.Ω_m0 * (1+z)^3 / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_Λ0)
+    _Ω_Λ = cosmo.Ω_Λ0 / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_Λ0)
+    return 2.5*_Ω_m/(_Ω_m^(4.0/7.0) - _Ω_Λ + (1.0 + 0.5*_Ω_m) * (1.0 + 1.0/70.0*_Ω_Λ))/(1+z)
+end
 #########################################################
 
 
