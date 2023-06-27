@@ -29,16 +29,9 @@ end
 g_func(y::Real)::Real = -6.0*sqrt(1.0+y)+(2.0+3.0*y)*log((sqrt(1.0+y)+1)/(sqrt(1.0+y)-1.0)) * y
 
 
-function ParametersEH98(cosmo::Cosmology{<:Real}, ::Type{T} = Float64) where {T<:Real}
-
-
-    Ω_m0_h2::T = cosmo.Ω_m0 * cosmo.h^2
-    Ω_b0_h2::T = cosmo.Ω_b0 * cosmo.h^2
-    Ω_χ0_h2::T = cosmo.Ω_χ0 * cosmo.h^2
-
-    Θ27::T = cosmo.T0_CMB_K / 2.7
-    z_eq = z_eq_mr(cosmo)
-    k_eq_Mpc = k_eq_mr_Mpc(cosmo)
+function ParametersEH98(Ω_m0_h2::Real, Ω_b0_h2::Real, Ω_χ0_h2::Real, z_eq_mr::Real, k_eq_mr_Mpc::Real, ::Type{T}; T0_CMB_K::Real = 2.72548) where {T<:Real}
+    
+    Θ27::T = T0_CMB_K / 2.7
 
     # z_drag
     b1::T = 0.313 * Ω_m0_h2^(-0.419) * (1. + 0.607 * Ω_m0_h2^0.674)
@@ -47,8 +40,8 @@ function ParametersEH98(cosmo::Cosmology{<:Real}, ::Type{T} = Float64) where {T<
     
     # sound horizon
     R_drag::T = 31.5 * Ω_b0_h2 * Θ27^(-4) * 1e+3 / z_drag
-    R_eq::T   = 31.5 * Ω_b0_h2 * Θ27^(-4) * 1e+3 / z_eq
-    sound_horizon_Mpc::T = 2. / (3. * k_eq_Mpc) * sqrt(6. / R_eq) * log((sqrt(1. + R_drag) + sqrt(R_drag + R_eq))/(1+sqrt(R_eq)))
+    R_eq::T   = 31.5 * Ω_b0_h2 * Θ27^(-4) * 1e+3 / z_eq_mr
+    sound_horizon_Mpc::T = 2. / (3. * k_eq_mr_Mpc) * sqrt(6. / R_eq) * log((sqrt(1. + R_drag) + sqrt(R_drag + R_eq))/(1+sqrt(R_eq)))
 
     # α_c
     a1::T  = (46.9 * Ω_m0_h2)^0.670 * (1.0 + (32.1 * Ω_m0_h2)^(-0.532) )
@@ -62,10 +55,22 @@ function ParametersEH98(cosmo::Cosmology{<:Real}, ::Type{T} = Float64) where {T<
 
     # k_silk, α_b, and β_b
     k_Silk_Mpc::T = 1.6 * ( Ω_b0_h2^0.52 ) * (Ω_m0_h2^0.73 ) * ( 1.0 + (10.4 * Ω_m0_h2)^(-0.95) )
-    α_b::T = 2.07 * k_eq_Mpc * sound_horizon_Mpc * (1.0 + R_drag)^(-3.0/4.0) * g_func( (1.0 + z_eq) / (1.0 + z_drag) )
+    α_b::T = 2.07 * k_eq_mr_Mpc * sound_horizon_Mpc * (1.0 + R_drag)^(-3.0/4.0) * g_func( (1.0 + z_eq_mr) / (1.0 + z_drag) )
     β_b::T = 0.5 + Ω_b0_h2 / Ω_m0_h2 + (3.0 - 2.0 * Ω_b0_h2/Ω_m0_h2) * sqrt( 1.0 + (17.2 * Ω_m0_h2)^2 )
 
-    return ParametersEH98(Ω_m0_h2, Ω_b0_h2, Ω_χ0_h2, Θ27, z_drag, sound_horizon_Mpc, α_c, α_b, β_c, β_b, k_Silk_Mpc)
+    ParametersEH98(convert(T, Ω_m0_h2), convert(T, Ω_b0_h2), convert(T, Ω_χ0_h2), convert(T, Θ27), z_drag, sound_horizon_Mpc, α_c, α_b, β_c, β_b, k_Silk_Mpc)
+end
+
+function ParametersEH98(cosmo::Cosmology{<:Real}, ::Type{T} = Float64) where {T<:Real}
+
+    Ω_m0_h2::T = cosmo.Ω_m0 * cosmo.h^2
+    Ω_b0_h2::T = cosmo.Ω_b0 * cosmo.h^2
+    Ω_χ0_h2::T = cosmo.Ω_χ0 * cosmo.h^2
+
+    z_eq = z_eq_mr(cosmo)
+    k_eq_Mpc = k_eq_mr_Mpc(cosmo)
+
+    return ParametersEH98(Ω_m0_h2, Ω_b0_h2, Ω_χ0_h2, z_eq, k_eq_Mpc, T, T0_CMB_K = cosmo.T0_CMB_K)
 end
 
 const parametersEH98_planck18 = ParametersEH98(planck18)
@@ -75,12 +80,12 @@ function transfer_0_tilde(q::Real, α_c::Real, β_c::Real)::Real
     return log(exp(1.0) + 1.8 * β_c * q ) / (log(exp(1.0) + 1.8 * β_c * q) + C * q^2)
 end 
 
-shape_parameter(k_Mpc::Real, p::ParametersEH98)::Real = k_Mpc * p.Θ27^2 / p.Ω_m0_h2
+shape_parameter(k_Mpc::Real, T0_CMB_K::Real, Ω_m0_h2::Real)=  k_Mpc * (T0_CMB_K/2.7)^2 / Ω_m0_h2
+shape_parameter(k_Mpc::Real, p::ParametersEH98)::Real = shape_parameter(k_Mpc, 2.7 * p.Θ27, p.Ω_m0_h2)
 
 function transfer_cdm(k_Mpc::Real, p::ParametersEH98)::Real
     q = shape_parameter(k_Mpc, p)
     f = 1.0 / (1.0  +  (k_Mpc * p.sound_horizon_Mpc / 5.4)^4)
-
     return f * transfer_0_tilde(q, 1.0, p.β_c) + (1.0 - f) * transfer_0_tilde(q, p.α_c, p.β_c)
 end
 
