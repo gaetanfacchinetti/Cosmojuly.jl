@@ -5,6 +5,8 @@ import Unitful: km, s, Gyr, K
 import UnitfulAstro: Mpc, Gpc, Msun
 import PhysicalConstants.CODATA2018: c_0, G as G_NEWTON
 
+export planck18
+
 #export planck18, convert_cosmo, FlatFLRW
 #export hubble_constant
 #export z_eq_mr, z_eq_Λm, z_to_a, a_to_z, universe_age, temperature_CMB_K, k_eq_mr_Mpc

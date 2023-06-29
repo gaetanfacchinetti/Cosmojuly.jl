@@ -36,23 +36,23 @@ function ParametersEH98(Ω_m0_h2::Real, Ω_b0_h2::Real, Ω_χ0_h2::Real, z_eq_mr
     Θ27::T = T0_CMB_K / 2.7
 
     # z_drag
-    b1::T = 0.313 * Ω_m0_h2^(-0.419) * (1. + 0.607 * Ω_m0_h2^0.674)
-    b2::T = 0.238 * Ω_m0_h2^0.223
+    b1 = 0.313 * Ω_m0_h2^(-0.419) * (1. + 0.607 * Ω_m0_h2^0.674)
+    b2 = 0.238 * Ω_m0_h2^0.223
     z_drag::T = 1291. * Ω_m0_h2^0.251 / (1. + 0.659 * Ω_m0_h2^0.828)  * (1. + b1 * Ω_b0_h2^b2)
     
     # sound horizon
-    R_drag::T = 31.5 * Ω_b0_h2 * Θ27^(-4) * 1e+3 / z_drag
-    R_eq::T   = 31.5 * Ω_b0_h2 * Θ27^(-4) * 1e+3 / z_eq_mr
+    R_drag = 31.5 * Ω_b0_h2 * Θ27^(-4) * 1e+3 / z_drag
+    R_eq   = 31.5 * Ω_b0_h2 * Θ27^(-4) * 1e+3 / z_eq_mr
     sound_horizon_Mpc::T = 2. / (3. * k_eq_mr_Mpc) * sqrt(6. / R_eq) * log((sqrt(1. + R_drag) + sqrt(R_drag + R_eq))/(1+sqrt(R_eq)))
 
     # α_c
-    a1::T  = (46.9 * Ω_m0_h2)^0.670 * (1.0 + (32.1 * Ω_m0_h2)^(-0.532) )
-    a2::T  = (12.0 * Ω_m0_h2)^0.424 * (1.0 + (45.0 * Ω_m0_h2)^(-0.582) )
+    a1  = (46.9 * Ω_m0_h2)^0.670 * (1.0 + (32.1 * Ω_m0_h2)^(-0.532) )
+    a2  = (12.0 * Ω_m0_h2)^0.424 * (1.0 + (45.0 * Ω_m0_h2)^(-0.582) )
     α_c::T =  a1^(-Ω_b0_h2/Ω_m0_h2) * a2^(-(Ω_b0_h2/Ω_m0_h2)^3) 
     
     # β_c
-    b1_2::T = 0.944 / (1+(458.0*Ω_m0_h2)^(-0.708))
-    b2_2::T = (0.395 * Ω_m0_h2)^(-0.0266)
+    b1_2 = 0.944 / (1+(458.0*Ω_m0_h2)^(-0.708))
+    b2_2 = (0.395 * Ω_m0_h2)^(-0.0266)
     β_c::T  = 1.0 / (1.0 + b1_2 * ((Ω_χ0_h2/Ω_m0_h2)^b2_2 - 1.0))
 
     # k_silk, α_b, and β_b
@@ -104,6 +104,13 @@ function transfer_baryons(k_Mpc::Real, p::ParametersEH98)::Real
 end
 
 function transfer_function(k_Mpc::Real, p::ParametersEH98 = parametersEH98_planck18; with_baryons::Bool = true)::Real
+    tc = transfer_cdm(k_Mpc, p)
+    tb = transfer_baryons(k_Mpc, p)
+    return with_baryons ? p.Ω_b0_h2 / p.Ω_m0_h2 * tb + p.Ω_χ0_h2/p.Ω_m0_h2 * tc : p.Ω_χ0_h2 / p.Ω_m0_h2 * tc
+end
+
+function transfer_function(k_Mpc::Real, cosmo::Cosmology{<:Real} = planck18; with_baryons::Bool = true)
+    p = ParametersEH98(cosmo)
     tc = transfer_cdm(k_Mpc, p)
     tb = transfer_baryons(k_Mpc, p)
     return with_baryons ? p.Ω_b0_h2 / p.Ω_m0_h2 * tb + p.Ω_χ0_h2/p.Ω_m0_h2 * tc : p.Ω_χ0_h2 / p.Ω_m0_h2 * tc
