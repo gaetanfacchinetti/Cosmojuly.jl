@@ -44,10 +44,10 @@ end
 function pdf_concentration(cΔ::Real, mΔ::Real) ::Real
    
     # Definition of properties from Sanchez-Conde & Prada relation
-    σ_c = 0.14 * log(10.0);
-    median_c = c_bar(mΔ);
+    σ_c = 0.14 * log(10.0)
+    median_c = c_bar(mΔ)
 
-    Kc = 0.5 * erfc(-log(median_c) / (sqrt(2.0) * σ_c));
+    Kc = 0.5 * erfc(-log(median_c) / (sqrt(2.0) * σ_c))
 
     return 1.0 / Kc / c200 / sqrt(2.0 * π) / σ_c * exp(-(log(cΔ) - log(median_c)) / sqrt(2.0) / σ_c^2)
 

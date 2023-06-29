@@ -4,8 +4,8 @@ include("./MyCosmology.jl")
 include("./TransferFunction.jl")
 
 
-import Main.MyCosmology: Cosmology, growth_factor, growth_factor_Carroll, hubble_constant, planck18
-import Main.TransferFunction: transfer_function, ParametersTF, parametersEH98_planck18
+import Main.Cosmojuly.MyCosmology: Cosmology, growth_factor, growth_factor_Carroll, hubble_constant, planck18
+import Main.Cosmojuly.TransferFunction: transfer_function, ParametersTF, parametersEH98_planck18
 import Unitful: NoUnits, km, s
 import UnitfulAstro: Mpc, Gpc, Msun
 import PhysicalConstants.CODATA2018: c_0

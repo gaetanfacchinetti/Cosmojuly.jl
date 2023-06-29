@@ -3,7 +3,9 @@ module TransferFunction
 
 include("./MyCosmology.jl")
 
-import Main.MyCosmology: Cosmology, z_eq_mr, k_eq_mr_Mpc, planck18
+import Main.Cosmojuly.MyCosmology: Cosmology, z_eq_mr, k_eq_mr_Mpc, planck18
+
+export transfer_function
 
 abstract type ParametersTF{T<:Real} end
 

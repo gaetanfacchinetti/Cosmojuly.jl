@@ -2,3 +2,9 @@ name = "env_DarkUniverse"
 uuid = "348a078d-9404-4ed9-b569-3ab879e7de16"
 authors = ["Gaétan Facchinetti <gaetanfacc@gmail.com>"]
 version = "0.1.0"
+
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+
+[compat]
+Documenter = "0.27"
