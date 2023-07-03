@@ -68,39 +68,57 @@ window_function(kR::Real, ::Type{TopHat})      = kR > 1e-3 ? 3.0 * (sin(kR) - kR
 window_function(kR::Real, ::Type{SharpK})      = 1 - kR > 0 ? 1.0 : 0.0
 window_function(kR::Real, ::Type{Exponential}) = exp(-kR * kR / 2.0)
 
+@doc raw""" 
+    window_function(kR, [T])
+
+Give the window function for the product of mode by radius ``k \times R``: `kR::Real` and a certain window type `T<:Window` 
+"""
+window_function(kR::Real, ::Type{T} = TopHat) where {T<:Window} = window_function(kR, T)
+
 volume_factor(::Type{TopHat})      = 4.0/3.0 * π 
 volume_factor(::Type{SharpK})      = 6.0 * π^2 
 volume_factor(::Type{Exponential}) = (2*π)^(3//2)
 
+@doc raw""" 
+   volume_factor([T])
+
+Give the volume factor associated to a certain window type `T<:Window` (default is `TopHat`)
+"""
+volume_factor(::Type{T} = TopHat) where {T<:Window} = volume_factor(T)
+
 
 """ 
-    mass_from_lagrangian_radius(R_Mpc, [volume factor, cosmo]) in Msun
+    mass_from_radius(R_Mpc, [T, [cosmo]]) in Msun
+
+Give the Lagrangian mass (in Msun) in terms of the comoving radius R (in Mpc)
 
 # Arguments
 - `R_Mpc`: radius in Mpc
-- `volume_factor`: volume_factor to relate mass and radius
-- `cosmo` : cosmology 
+- `T`: type of Window (default is `TopHat`)
+- `cosmo` : cosmology type (default is `planck18`)
 """
 mass_from_radius(R_Mpc::Real, ::Type{T} = TopHat; cosmo::Cosmology = planck18) where {T<:Window}  = volume_factor(T) * ρ_m_Msun_Mpc3(0, cosmo) * R_Mpc^3
 
 
 """ 
-    radius_from_mass(M_Msun, [volume factor, cosmo]) in Msun
+    radius_from_mass(M_Msun, [T, [cosmo]]) in Msun
+
+Give the comoving radius R (in Mpc) in terms of the  Lagrangian mass (in Msun)
 
 # Arguments
 - `M_Msun`: radius in Msun
-- `volume_factor`: volume_factor to relate mass and radius
-- `cosmo` : cosmology 
+- `T`: type of Window (default is `TopHat`)
+- `cosmo` : cosmology type (default is `planck18`)
 """
 radius_from_mass(M_Msun::Real, ::Type{T} = TopHat; cosmo::Cosmology = planck18) where {T<:Window} = (M_Msun / volume_factor(T) / ρ_m_Msun_Mpc3(0, cosmo))^(1/3)
 
 
 function σ²(R_Mpc::Real, ::Type{TopHat}, matter_ps::Function; kws...)
-    return log(20.0) - log(R_Mpc) > -10.0 ? quadgk(lnk -> matter_ps(exp(lnk)) * window_function(exp(lnk) * R_Mpc, TopHat)^2, -10.0, log(20.0) - log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
+    return log(20.0) - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)) * window_function(exp(lnk) * R_Mpc, TopHat)^2, -8.0, log(20.0) - log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
 end
 
 function σ²(R_Mpc::Real, ::Type{SharpK}, matter_ps::Function; kws...)
-    return - log(R_Mpc) > -10.0 ? quadgk(lnk -> matter_ps(exp(lnk)), -10.0, -log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
+    return - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)), -8.0, -log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
 end
 
 
