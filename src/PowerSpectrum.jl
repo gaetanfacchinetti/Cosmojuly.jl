@@ -13,7 +13,7 @@ import PhysicalConstants.CODATA2018: c_0
 import QuadGK: quadgk
 
 export curvature_power_spectrum, matter_power_spectrum
-export window_function, Window, TopHat, SharpK, Exponential
+export window_function, Window, TopHat, SharpK, Gaussian
 export radius_from_mass, mass_from_radius, σ²_m, σ²_χ
 
 """ ΛCDM power-law power spectrum (dimensionless) at k_Mpc (in 1/Mpc) """
@@ -62,11 +62,7 @@ end
 abstract type Window end
 abstract type TopHat <: Window end
 abstract type SharpK <: Window end
-abstract type Exponential <: Window end
-
-window_function(kR::Real, ::Type{TopHat})      = kR > 1e-3 ? 3.0 * (sin(kR) - kR * cos(kR)) / kR^3 : 1.0 - kR^2/10.0 
-window_function(kR::Real, ::Type{SharpK})      = 1 - kR > 0 ? 1.0 : 0.0
-window_function(kR::Real, ::Type{Exponential}) = exp(-kR * kR / 2.0)
+abstract type Gaussian <: Window end
 
 @doc raw""" 
     window_function(kR, [T])
@@ -75,9 +71,18 @@ Give the window function for the product of mode by radius ``k \times R``: `kR::
 """
 window_function(kR::Real, ::Type{T} = TopHat) where {T<:Window} = window_function(kR, T)
 
+window_function(kR::Real, ::Type{TopHat})      = kR > 1e-3 ? 3.0 * (sin(kR) - kR * cos(kR)) / kR^3 : 1.0 - kR^2/10.0 
+window_function(kR::Real, ::Type{SharpK})      = 1 - kR > 0 ? 1.0 : 0.0
+window_function(kR::Real, ::Type{Gaussian}) = exp(-kR * kR / 2.0)
+
+dwindow_function_dkR(kR::Real, ::Type{TopHat})   = kR < 0.1 ? -kR/5.0 + kR^3/70.0 : 3*sin(kR) / kR^2 - 9 * (-kR * cos(kR) + sin(kR)) / kR^4
+dwindow_function_dkR(kR::Real,  ::Type{SharpK})   = 0
+dwindow_function_dkR(kR::Real, ::Type{Gaussian}) = -kR * exp(-kR^2/2.0)
+
+
 volume_factor(::Type{TopHat})      = 4.0/3.0 * π 
 volume_factor(::Type{SharpK})      = 6.0 * π^2 
-volume_factor(::Type{Exponential}) = (2*π)^(3//2)
+volume_factor(::Type{Gaussian}) = (2*π)^(3//2)
 
 @doc raw""" 
    volume_factor([T])
@@ -112,41 +117,64 @@ Give the comoving radius R (in Mpc) in terms of the  Lagrangian mass (in Msun)
 """
 radius_from_mass(M_Msun::Real, ::Type{T} = TopHat; cosmo::Cosmology = planck18) where {T<:Window} = (M_Msun / volume_factor(T) / ρ_m_Msun_Mpc3(0, cosmo))^(1/3)
 
+σ²(R_Mpc::Real, ::Type{TopHat}, matter_ps::Function; kws...)   = log(20.0) - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)) * window_function(exp(lnk) * R_Mpc, TopHat)^2, -8.0, log(20.0) - log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
+σ²(R_Mpc::Real, ::Type{SharpK}, matter_ps::Function; kws...)   = - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)), -8.0, -log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
+σ²(R_Mpc::Real, ::Type{Gaussian}, matter_ps::Function; kws...) = log(4.0) - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)) * window_function(exp(lnk) * R_Mpc, Gaussian)^2, -8.0, log(4.0) - log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
+σ²(R_Mpc::Real, ::Type{T}, matter_ps::Function; kws...) where {T<:Window} = σ²(R_Mpc, T, matter_ps; kws...)
 
-function σ²(R_Mpc::Real, ::Type{TopHat}, matter_ps::Function; kws...)
-    return log(20.0) - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)) * window_function(exp(lnk) * R_Mpc, TopHat)^2, -8.0, log(20.0) - log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
-end
-
-function σ²(R_Mpc::Real, ::Type{SharpK}, matter_ps::Function; kws...)
-    return - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)), -8.0, -log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
-end
-
-
-function σ²_m(
+function σ²(
     R_Mpc::Real, 
     ::Type{T} = TopHat, 
     power_spectrum::Function = power_spectrum_ΛCDM,  
     cosmology::Cosmology{<:Real} = planck18,
-    transferFunctionModel::Union{Nothing, TransferFunctionModel} = nothing,
+    transferFunctionModel::Union{Nothing, TransferFunctionModel} = nothing;
     kws...) where {T<:Window}
 
     return σ²(R_Mpc, T, k->matter_power_spectrum(k, 0; power_spectrum = power_spectrum, cosmology = cosmology, transferFunctionModel = transferFunctionModel, dimensionless=true); kws...)
 end
 
-function σ²_χ(
+
+σ(R_Mpc::Real, ::Type{T}, matter_ps::Function; kws...) where {T<:Window} = sqrt(σ²(R_Mpc, T, matter_ps; kws...))
+
+function σ(
     R_Mpc::Real, 
     ::Type{T} = TopHat, 
     power_spectrum::Function = power_spectrum_ΛCDM,  
     cosmology::Cosmology{<:Real} = planck18,
-    transferFunctionModel::Union{Nothing, TransferFunctionModel} = nothing,
+    transferFunctionModel::Union{Nothing, TransferFunctionModel} = nothing;
     kws...) where {T<:Window}
 
-    return σ²(R_Mpc, T, k->matter_power_spectrum(k, 0; power_spectrum = power_spectrum, cosmology = cosmology, transferFunctionModel = transferFunctionModel, dimensionless=true, with_baryons=false); kws...)
+    return σ(R_Mpc, T, power_spectrum, cosmology, TransferFunctionModel; kws...)
 end
 
 
+dσ²_dR(R_Mpc::Real, ::Type{TopHat}, matter_ps::Function; kws...) = log(20.0) - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)) * 2 * window_function(exp(lnk) * R_Mpc, TopHat) * dwindow_function_dkR(exp(lnk) * R_Mpc, TopHat), -8.0, log(20.0) - log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
+dσ²_dR(R_Mpc::Real, ::Type{SharpK}, matter_ps::Function; kws...) = - matter_power_spectrum(1.0/R) / R
+dσ²_dR(R_Mpc::Real, ::Type{Gaussian}, matter_ps::Function; kws...) = log(4.0) - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)) * 2 * window_function(exp(lnk) * R_Mpc, Gaussian) * dwindow_function_dkR(exp(lnk) * R_Mpc, Gaussian), -8.0, log(4.0) - log(R_Mpc), rtol=1e-3; kws...)[1] : 0.0
+dσ²_dR(R_Mpc::Real, ::Type{T}, matter_ps::Function; kws...) where {T<:Window} = dσ²_dR(R_Mpc, T, matter_ps; kws...)
 
+function dσ²_dR(
+    R_Mpc::Real, 
+    ::Type{T} = TopHat, 
+    power_spectrum::Function = power_spectrum_ΛCDM,  
+    cosmology::Cosmology{<:Real} = planck18,
+    transferFunctionModel::Union{Nothing, TransferFunctionModel} = nothing;
+    kws...) where {T<:Window}
 
+    return dσ²_dR(R_Mpc, T, power_spectrum, cosmology, TransferFunctionModel; kws...)
+end
+
+dσ_dR(R_Mpc::Real, ::Type{T}, matter_ps::Function; kws...) where {T<:Window} = 0.5 * dσ²_dR(R_Mpc, T, matter_ps; kws...) / σ(R_Mpc, T, matter_ps; kws...) 
+
+function dσ_dR(R_Mpc::Real, 
+    ::Type{T} = TopHat, 
+    power_spectrum::Function = power_spectrum_ΛCDM,  
+    cosmology::Cosmology{<:Real} = planck18,
+    transferFunctionModel::Union{Nothing, TransferFunctionModel} = nothing;
+    kws...) where {T<:Window}
+
+    return dσ_dR(R_Mpc, T, power_spectrum, cosmology, TransferFunctionModel; kws...)
+end
 
 
 

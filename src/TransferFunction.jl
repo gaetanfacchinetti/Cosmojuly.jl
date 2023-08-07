@@ -28,7 +28,7 @@ struct EH98{T<:Real} <: TransferFunctionModel
 
 end
 
-g_func(y::Real)::Real = -6.0*sqrt(1.0+y)+(2.0+3.0*y)*log((sqrt(1.0+y)+1)/(sqrt(1.0+y)-1.0)) * y
+g_func(y::Real) = (-6.0*sqrt(1.0+y) + (2.0+3.0*y)*log((sqrt(1.0+y)+1)/(sqrt(1.0+y)-1.0))) * y
 
 
 function EH98(Ω_m0_h2::Real, Ω_b0_h2::Real, Ω_χ0_h2::Real, z_eq_mr::Real, k_eq_mr_Mpc::Real, ::Type{T}; T0_CMB_K::Real = 2.72548) where {T<:Real}
