@@ -105,7 +105,6 @@ end
 
 
 
-
 """
     transfer_function
 """
