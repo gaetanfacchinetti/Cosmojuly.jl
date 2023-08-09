@@ -1,9 +1,9 @@
 
 module TransferFunction
 
-include("./MyCosmology.jl")
+include("./BackgroundCosmo.jl")
 
-import Main.Cosmojuly.MyCosmology: Cosmology, z_eq_mr, k_eq_mr_Mpc, planck18
+import Main.Cosmojuly.BackgroundCosmo: BkgCosmology, z_eq_mr, k_eq_mr_Mpc, planck18_bkg
 
 export transfer_function, TrivialTF, EH98, TransferFunctionModel
 
@@ -11,7 +11,7 @@ abstract type TransferFunctionModel end
 
 struct EH98{T<:Real} <: TransferFunctionModel
     
-    # Parameters directly related to the Cosmology
+    # Parameters directly related to the BkgCosmology
     Ω_m0_h2::T
     Ω_b0_h2::T
     Ω_χ0_h2::T
@@ -63,7 +63,7 @@ function EH98(Ω_m0_h2::Real, Ω_b0_h2::Real, Ω_χ0_h2::Real, z_eq_mr::Real, k_
     EH98(convert(T, Ω_m0_h2), convert(T, Ω_b0_h2), convert(T, Ω_χ0_h2), convert(T, Θ27), z_drag, sound_horizon_Mpc, α_c, α_b, β_c, β_b, k_Silk_Mpc)
 end
 
-function EH98(cosmo::Cosmology{<:Real}, ::Type{T} = Float64) where {T<:Real}
+function EH98(cosmo::BkgCosmology{<:Real}, ::Type{T} = Float64) where {T<:Real}
 
     Ω_m0_h2::T = cosmo.Ω_m0 * cosmo.h^2
     Ω_b0_h2::T = cosmo.Ω_b0 * cosmo.h^2
@@ -75,7 +75,7 @@ function EH98(cosmo::Cosmology{<:Real}, ::Type{T} = Float64) where {T<:Real}
     return EH98(Ω_m0_h2, Ω_b0_h2, Ω_χ0_h2, z_eq, k_eq_Mpc, T, T0_CMB_K = cosmo.T0_CMB_K)
 end
 
-const EH98_planck18 = EH98(planck18)
+const EH98_planck18 = EH98(planck18_bkg)
 
 function transfer_0_tilde(q::Real, α_c::Real, β_c::Real)::Real
     C = 14.2 / α_c + 386.0 / (1.0 + 69.9 * q^1.08 )
@@ -108,7 +108,7 @@ end
 """
     transfer_function
 """
-function transfer_function(k_Mpc::Real, cosmo::Cosmology{<:Real} = planck18; with_baryons::Bool = true)
+function transfer_function(k_Mpc::Real, cosmo::BkgCosmology{<:Real} = planck18_bkg; with_baryons::Bool = true)
     p = EH98(cosmo)
     tc = transfer_cdm(k_Mpc, p)
     tb = transfer_baryons(k_Mpc, p)
@@ -124,6 +124,7 @@ end
 
 ## Define here the trivial transfer function
 struct TrivialTF <: TransferFunctionModel end
+TrivialTF(cosmo::BkgCosmology{<:Real}) = TrivialTF()
 transfer_function(k_Mpc::Real, p::TrivialTF; with_baryons::Bool = true) = 1.0
 
 ## Other transfer functions can be implemented down here
