@@ -57,7 +57,7 @@ end
 
 export mass_vs_S, mass_fraction_unresolved, mean_number_small_progenitors, draw_mass_with_restrictions
 export mean_number_progenitors, subhalo_mass_function, cumulative_progenitors, Δω_approx, redshift_array
-export subhalo_mass_function_array, one_step_merger_tree
+export subhalo_mass_function_array, one_step_merger_tree, pdf_progenitors, interpolate_functions_PF
 
 # In the excursion set framework S=σ² 
 # The only valid window function is the SharpK function
@@ -83,8 +83,20 @@ function mean_number_progenitors(M::Real, M1::Real, Mres::Real; cosmology::Cosmo
 
     _S1 = σ²_vs_M(M1, SharpK, cosmology = cosmology)
 
-    return  M1 / sqrt(2.0 * π)  * quadgk(lnM2 -> _integrand(exp(lnM2), _S1, cosmology) * exp(lnM2), log(Mres), log(M), rtol=1e-3)[1]
+    return  M1 / sqrt(2.0 * π)  * quadgk(lnM2 -> _integrand(exp(lnM2), _S1, cosmology) * exp(lnM2), log(Mres), log(M), rtol=1e-5)[1]
 
+end
+
+function pdf_progenitors(M2::Real, M1::Real, Mres::Real; cosmology::Cosmology = planck18) 
+
+    if M2 < Mres
+        return 0.0
+    end
+
+    _ΔS = σ²_vs_M(M2, SharpK, cosmology = cosmology) -  σ²_vs_M(M1, SharpK, cosmology = cosmology)
+    _dS2_dM = dσ²_dM(M2, SharpK, cosmology = cosmology)
+
+    return  M1 / M2 / sqrt(2.0 * π) / _ΔS^(3/2) * abs(_dS2_dM) / mean_number_progenitors(M1/2.0, M1, Mres, cosmology = cosmology) 
 end
 
 cumulative_progenitors(M2::Real, M1::Real, Mres::Real; cosmology::Cosmology = planck18) =  M2 > M1/2.0 ? 1.0 : mean_number_progenitors(M2, M1, Mres, cosmology = cosmology) / mean_number_progenitors(M1/2.0, M1, Mres, cosmology = cosmology) 
@@ -109,22 +121,22 @@ function draw_mass_with_restrictions(random::Real, M1::Real, Mres::Real, itp_fun
         return draw_mass_with_restrictions(M1, Mres, cosmology=cosmology) 
     end
     _cumulative_progenitors(M2::Real, M1::Real, Mres::Real, itp_functionP::Function, cosmology::Cosmology = planck18) =  M2 > M1/2.0 ? 1.0 : mean_number_progenitors(M2, M1, Mres, cosmology = cosmology) / itp_functionP(M1) 
-    return 10.0^find_zero(z -> random - _cumulative_progenitors(10.0^z, M1, Mres, itp_functionP, cosmology), (log10(Mres), log10(M1/2.0)), Bisection(), rtol=1e-3)
+    return 10.0^find_zero(z -> random - _cumulative_progenitors(10.0^z, M1, Mres, itp_functionP, cosmology), (log10(Mres), log10(M1/2.0)), Bisection(), rtol=1e-4*(1-random))
 end
 
 
 function one_step_merger_tree(P::Real, F::Real, M1::Real, Mres::Real, cosmology::Cosmology = planck18, itp_functionP::Union{Function, Nothing} = nothing)
 
-    _R = rand(Float64)
+    R = rand(Float64)
     array_progenitors = zeros(0)
 
-    if (P < _R || M1 < 2*Mres)
+    if (P < R || M1 < 2*Mres)
         if (M1 * (1-F) > Mres) 
             append!(array_progenitors, M1 * (1-F)) 
         end 
     else
-        
-        M2 = draw_mass_with_restrictions(M1, Mres, itp_functionP, cosmology = cosmology)
+        y = rand(Float64)
+        M2 = draw_mass_with_restrictions(y, M1, Mres, itp_functionP, cosmology = cosmology)
         if (M1 * (1-F) - M2 > Mres)
             append!(array_progenitors, M1 * (1-F) - M2)
         end
@@ -137,42 +149,60 @@ end
     
 Δω_approx(Mhost::Real, Mres::Real; cosmology::Cosmology = planck18) = sqrt(1e-2 * Mres * abs(dσ²_dM(Mhost, SharpK, cosmology = cosmology)))
 
+
+function interpolate_functions_PF(Mhost_init::Real, Mres::Real; cosmology::Cosmology=planck18)
+
+    log10m_P = range(log10(2.0 * Mres),stop=log10(Mhost_init),length=2000)
+    log10m_F = range(log10(Mres),stop=log10(Mhost_init),length=4000)
+    function_log10P = interpolate((log10m_P,), log10.(mean_number_progenitors.(10.0 .^log10m_P  ./ 2.0, 10 .^log10m_P, Mres, cosmology=cosmology)),  Gridded(Linear()))
+    function_log10F = interpolate((log10m_F,), log10.(mass_fraction_unresolved.(10 .^log10m_F, Mres, cosmology=cosmology)),  Gridded(Linear()))
+  
+    function_P(M1::Real, Mres::Real) = M1 < 2.0*Mres ? 0 : 10.0^function_log10P(log10(M1))
+    function_F(M1::Real) = 10.0^function_log10F(log10(M1))
+    
+    return function_P, function_F
+end
+
 function subhalo_mass_function(Mhost_init::Real, Mres::Real; 
                                 cosmology::Cosmology=planck18, 
                                 growth_function::Function = growth_factor_Carroll, 
                                 δ_c::Real = 1.686)
 
-    log10m_P = range(log10(log10(2.0 * Mres)),stop=log10(log10(Mhost_init)),length=2000)
-    log10m_F = range(log10(log10(Mres)),stop=log10(log10(Mhost_init)),length=4000)
-    function_log10P = interpolate((log10m_P,), log10.(mean_number_progenitors.(10.0 .^ (10.0 .^log10m_P ) ./ 2.0, 10.0 .^(10 .^log10m_P), Mres, cosmology=cosmology)),  Gridded(Linear()))
-    function_log10F = interpolate((log10m_F,), log10.(mass_fraction_unresolved.(10.0 .^(10 .^log10m_F), Mres, cosmology=cosmology)),  Gridded(Linear()))
-  
-    function_P(M1::Real, Mres::Real) = M1 < 2.0*Mres ? 0 : 10.0^function_log10P(log10(log10(M1)))
-    function_F(M1::Real) = 10.0^function_log10F(log10(log10(M1)))
 
+    function_P, function_F = interpolate_functions_PF(Mhost_init, Mres, cosmology=cosmology)
     
     # initialisation of the values
     the_end = false
     frac_init = 1.0
     z = 0.0
-    
+
+    z_steps     = zeros(0)
+    m_host      = zeros(0)
     z_accretion = zeros(0)
     subhalo_mass = zeros(0)
 
     i = 1
 
+    Δz = 0
+    
+
+
     while(the_end == false)
 
         the_end = true
 
-        Mhost = Mhost_init .* frac_init
+        Mhost = Mhost_init * frac_init
 
-        Δω = 0.005 .* Δω_approx(Mhost, Mres)
-        z = z_vs_Δω.(z, Δω, growth_function=growth_function, δ_c = δ_c)
-
-        P = Δω * function_P(Mhost, Mres)
+        P = 0.1
+        Δω = P / function_P(Mhost, Mres)
         F = Δω * function_F(Mhost)
 
+        z = z_vs_Δω(z, Δω, growth_function=growth_function, δ_c = δ_c)
+
+        if i == 1
+            Δz = z
+        end
+        
         #P = Δω * mean_number_progenitors(Mhost / 2.0, Mhost, Mres, cosmology = cosmology)
         #F = Δω * mass_fraction_unresolved(Mhost, Mres, cosmology = cosmology)
         
@@ -200,21 +230,23 @@ function subhalo_mass_function(Mhost_init::Real, Mres::Real;
             the_end = false
         end
 
-        if i%100000 == 0
-            println(z, " ", size(subhalo_mass)[1], " ", frac_init)
+        if i%max(trunc(0.3/Δz), 1) == 0
+            append!(z_steps, z)
+            append!(m_host, Mhost)   
+            println(z, " ", size(subhalo_mass)[1], " ", frac_init, " ", P)
         end
 
         i = i+1
 
     end
 
-    return subhalo_mass, z_accretion
+    return subhalo_mass, m_host, z_steps, z_accretion
 end
 
 
 function z_vs_Δω(z0::Real, Δω::Real; growth_function::Function = growth_factor_Carroll, δ_c::Real = 1.686)
-    if z0 < 10.0
-        return find_zero(z -> δ_c * growth_function(0) * (1.0 / growth_function(z) - 1.0 /  growth_function(z0)) - Δω, (0, 1e+3), Bisection(), rtol=1e-6)
+    if z0 < 8.0
+        return find_zero(z -> δ_c * growth_function(0) * (1.0 / growth_function(z) - 1.0 /  growth_function(z0)) - Δω, (0, 1e+3), Bisection(), rtol=1e-8)
     else
         return z0 + Δω / growth_function(0) / δ_c
     end
