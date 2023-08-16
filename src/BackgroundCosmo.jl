@@ -11,6 +11,7 @@ export planck18_bkg, convert_cosmo, FlatFLRW
 export hubble_constant
 export z_eq_mr, z_eq_Λm, z_to_a, a_to_z, universe_age, temperature_CMB_K, k_eq_mr_Mpc
 export growth_factor, growth_factor_Carroll
+export lookback_time
 
 abstract type BkgCosmology{T<:Real} end
 abstract type FLRW{T<:Real} <: BkgCosmology{T} end
