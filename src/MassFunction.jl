@@ -57,7 +57,7 @@ end
 
 export mass_vs_S, mass_fraction_unresolved, mean_number_small_progenitors, draw_mass_with_restrictions
 export mean_number_progenitors, subhalo_mass_function, cumulative_progenitors, Δω_approx, redshift_array
-export subhalo_mass_function_array, one_step_merger_tree, pdf_progenitors, interpolate_functions_PF, Δz_vs_Δω
+export subhalo_mass_function_array, one_step_merger_tree, pdf_progenitors, interpolate_functions_PF, z_vs_Δω
 export interpolate_functions_z
 
 # In the excursion set framework S=σ² 
@@ -85,7 +85,6 @@ function mean_number_progenitors(M::Real, M1::Real, Mres::Real; cosmology::Cosmo
     _S1 = σ²_vs_M(M1, SharpK, cosmology = cosmology)
 
     return  M1 / sqrt(2.0 * π)  * quadgk(lnM2 -> _integrand(exp(lnM2), _S1, cosmology) * exp(lnM2), log(Mres), log(M), rtol=1e-5)[1]
-
 end
 
 function pdf_progenitors(M2::Real, M1::Real, Mres::Real; cosmology::Cosmology = planck18) 
@@ -154,8 +153,10 @@ function interpolate_functions_PF(Mhost_init::Real, Mres::Real; cosmology::Cosmo
     return function_P, function_F
 end
 
+
+
 function subhalo_mass_function(Mhost_init::Real, Mres::Real; 
-                                Δz_vs_Δω::Function = Δz_vs_Δω,
+                                z_vs_Δω::Function = _z_vs_Δω,
                                 cosmology::Cosmology=planck18)
 
 
@@ -174,20 +175,26 @@ function subhalo_mass_function(Mhost_init::Real, Mres::Real;
     i = 1
 
     P = 0.1
-    Δω = P / function_P(Mhost_init, Mres)
-    Δz = Δz_vs_Δω(z, Δω)
+    δω = P / function_P(Mhost_init, Mres)
+    Δz = z_vs_Δω(δω)
+    Δω = 0.0
+
+    Mhost = Mhost_init
 
 
-    while(the_end == false)
+    while (the_end == false && Mhost/2.0 > Mres)
 
         the_end = true
 
-        Mhost = Mhost_init * frac_init
+        δω = P / function_P(Mhost, Mres)
+        F = δω * function_F(Mhost)
 
-        Δω = P / function_P(Mhost, Mres)
-        F = Δω * function_F(Mhost)
+        Δω = Δω + δω
+        if Δω == Inf
+            println(Mhost, " ", Mhost/2.0, " ", Mres, " ",  Δω, " ", function_P(Mhost, Mres), " ", mean_number_progenitors(Mhost/2.0, Mhost, Mres))
+        end
 
-        z = z + Δz_vs_Δω(z, Δω)
+        z = z_vs_Δω(Δω)
         
         array_progenitors = one_step_merger_tree(P, F, Mhost, Mres, cosmology,  Mhost->function_P(Mhost, Mres))
 
@@ -213,16 +220,18 @@ function subhalo_mass_function(Mhost_init::Real, Mres::Real;
             the_end = false
         end
 
+        Mhost = Mhost_init * frac_init
+        i = i+1
+
         if i%max(trunc(0.03/Δz), 1) == 0
             append!(z_steps, z)
             append!(m_host, Mhost)   
         end
 
+      
         if i%max(trunc(0.03/Δz), 1) == 0
             println(z, " ", size(subhalo_mass)[1], " ", frac_init, " ", Δω)
         end
-
-        i = i+1
 
     end
 
@@ -230,27 +239,27 @@ function subhalo_mass_function(Mhost_init::Real, Mres::Real;
 end
 
 
-function interpolate_functions_z(growth_function::Function = growth_factor_Carroll, δ_c::Real = 1.686)
+function interpolate_functions_z(z0::Real = 0; growth_function::Function = growth_factor_Carroll, δ_c::Real = 1.686)
    
-    log10_z = range(-5,stop=3,length=2000)
-    log10_Δω = range(-6,stop=1,length=2000)
+    log10_Δω = range(-6,stop=2,length=2000)
+    function_log10_z = interpolate((log10_Δω,), log10.(_z_vs_Δω.(10.0.^log10_Δω, z0, growth_function=growth_function, δ_c=δ_c)),  Gridded(Linear()))
     
-    _m = [Δz_vs_Δω(10^lz, 10^lΔω, growth_function=growth_function, δ_c=δ_c) for lz in log10_z, lΔω in log10_Δω]
-
-    function_log10_z = interpolate((log10_z, log10_Δω), log10.(_m),  Gridded(Linear()))
-  
-    function_z(z0::Real, Δω::Real) = 10.0^function_log10_z(log10(z0), log10(Δω))
+    function_z(Δω::Real) = 10.0^function_log10_z(log10(Δω))
     
     return function_z
 end
 
 
-function Δz_vs_Δω(z0::Real, Δω::Real; growth_function::Function = growth_factor_Carroll, δ_c::Real = 1.686)
+function Δz_vs_Δω(Δω::Real, z0::Real=0; growth_function::Function = growth_factor_Carroll, δ_c::Real = 1.686)
     if z0 < 10.0
         return 10.0^find_zero(log10z -> δ_c * growth_function(0) * (1.0 / growth_function(10^log10z) - 1.0 /  growth_function(z0)) - Δω, (-10, +3), Bisection(), xrtol=1e-10) - z0
     else
         return Δω / growth_function(0) / δ_c
     end
+end
+
+function _z_vs_Δω(Δω::Real, z0::Real = 0; growth_function::Function = growth_factor_Carroll, δ_c::Real = 1.686)
+    return 10.0^find_zero(log10z -> δ_c * growth_function(0) * (1.0 / growth_function(10^log10z) - 1.0 /  growth_function(z0)) - Δω, (-10, +3), Bisection(), xrtol=1e-10)
 end
 
 
