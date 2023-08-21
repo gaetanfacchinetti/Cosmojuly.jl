@@ -23,16 +23,17 @@ export σ²_vs_M, dσ²_dM, σ_vs_M, dσ_dM
 #####################
 
 struct Cosmology
+    name::String
     bkg::BkgCosmology{<:Real}
     power_spectrum::Function
     transfer_function_model::TransferFunctionModel
 end
 
-function Cosmology(bkg::BkgCosmology{<:Real}, power_spectrum::Function, ::Type{T} = EH98) where {T<:TransferFunctionModel}
-    return Cosmology(bkg, power_spectrum, T(bkg))
+function Cosmology(name::String, bkg::BkgCosmology{<:Real}, power_spectrum::Function, ::Type{T} = EH98) where {T<:TransferFunctionModel}
+    return Cosmology(name, bkg, power_spectrum, T(bkg))
 end
 
-const planck18::Cosmology = Cosmology(planck18_bkg, k_Mpc->power_spectrum_ΛCDM(k_Mpc, 1e-10*exp(3.044), 0.9649), EH98_planck18)
+const planck18::Cosmology = Cosmology("PLANCK18", planck18_bkg, k_Mpc->power_spectrum_ΛCDM(k_Mpc, 1e-10*exp(3.044), 0.9649), EH98_planck18)
 
 
 
