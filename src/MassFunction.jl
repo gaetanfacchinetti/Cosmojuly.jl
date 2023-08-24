@@ -61,15 +61,14 @@ export mass_vs_S, mass_fraction_unresolved, cmf_inv_progenitors
 export mean_number_progenitors, subhalo_mass_function, cmf_progenitors
 export subhalo_mass_function_array, one_step_merger_tree, pdf_progenitors, interpolate_functions_PF
 export z_vs_Δω, interpolate_functions_z
-export _save_cmf_inv_progenitors, _load_cmf_inv_progenitors
+export save_data_merger_tree, load_data_merger_tree
 export subhalo_mass_function_binned
 
-export interpolation_S_vs_mass
+export interpolation_s_vs_mass
 
 # In the excursion set framework S=σ² 
 # The only valid window function is the SharpK function
 # All masses are in solar masses
-
 
 mass_vs_S(S::Real; cosmology::Cosmology = planck18) = 10^(find_zero(y -> σ²_vs_M(10^y, SharpK, cosmology = cosmology) - S, (-20, 20), Bisection(), xrtol=1e-5))
 
@@ -88,15 +87,13 @@ in the evaluation of the power spectrum variance here it is imposed
 - `s_vs_m::Function`: interpolation function of ``\sigma^2(m)``
 - `ds_vs_m::Function`: interpolation function of ``{\rm d}\sigma^2 / {\rm d} m``
 """
-function interpolation_S_vs_mass(cosmology::Cosmology=planck18; range::Vector{<:Real} = range(-20, 20,length=2000))
+function interpolation_s_vs_mass(cosmology::Cosmology=planck18; range::Union{AbstractRange, Vector{<:Real}} = range(-20, 20,length=2000))
 
-    log10_mass = range
-
-    function_log10_S_vs_mass = interpolate((log10_mass,), log10.(σ²_vs_M.(10 .^log10_mass, SharpK, cosmology=cosmology)),  Gridded(Linear()))
-    function_log10_dS_vs_mass = interpolate((log10_mass,), log10.(abs.(dσ²_dM.(10 .^log10_mass, SharpK, cosmology=cosmology))),  Gridded(Linear()))
+    function_log10_s_vs_mass = interpolate((range,), log10.(σ²_vs_M.(10 .^range, SharpK, cosmology=cosmology)),  Gridded(Linear()))
+    function_log10_ds_vs_mass = interpolate((range,), log10.(abs.(dσ²_dM.(10 .^range, SharpK, cosmology=cosmology))),  Gridded(Linear()))
     
-    itp_s_vs_m(m::Real)  = 10.0^function_log10_S_vs_mass(log10(m))
-    itp_ds_vs_m(m::Real) = 10.0^function_log10_dS_vs_mass(log10(m))
+    itp_s_vs_m(m::Real)  = 10.0^function_log10_s_vs_mass(log10(m))
+    itp_ds_vs_m(m::Real) = 10.0^function_log10_ds_vs_mass(log10(m))
 
     return itp_s_vs_m, itp_ds_vs_m
 end
@@ -105,9 +102,10 @@ end
     mean_number_progenitors(m, m1, mres, s_vs_m, ds_vs_m) 
 
 Mean number of progenitors between `mres` and `m` in a host of mass `m1` (per time step Δω)
+All masses must be in units of ``M_\odot``
 """
 function mean_number_progenitors(m::Real, m1::Real, mres::Real, s_vs_m::Function, ds_vs_m::Function;
-    method::Symbol = :gausslegendre, order::Int = 10000, rtol::Real = 1e-8) 
+    method::Symbol = :gausslegendre, order::Int = 10000, rtol::Real = 1e-10) 
 
     if (m < mres || m > m1 / 2.0)
         return 0.0
@@ -119,47 +117,47 @@ function mean_number_progenitors(m::Real, m1::Real, mres::Real, s_vs_m::Function
     return  m1 / sqrt(2.0 * π)  * res_integral[1]
 end
 
-mean_number_progenitors(m::Real, m1::Real, mres::Real; cosmology::Cosmology = planck18, kws...) = mean_number_progenitors(m, m1, mres, m->σ²_vs_M(m, SharpK, cosmology = cosmology),  m->dσ²_dM(m, SharpK, cosmology = cosmology); kws...)
+@doc raw"""
+    pdf_progenitors(m2, m1, mres::Real, s_vs_m::Function, ds_vs_m::Function; kws...)
+"""
+pdf_progenitors(m2::Real, m1::Real, mres::Real, s_vs_m::Function, ds_vs_m::Function; kws...) =  (m2 < mres && return 0.0) || (return m1 / m2 / sqrt(2.0 * π) / (s_vs_m(m2) -  s_vs_m(m1))^(3/2) * abs(ds_vs_m(m2)) / mean_number_progenitors(m1/2.0, m1, mres, s_vs_m, ds_vs_m; kws...))
+cmf_progenitors(m2::Real, m1::Real, mres::Real, nProgTot::Real, s_vs_m::Function, ds_vs_m::Function; kws...) = m2 > m1/2.0 ? 1.0 : mean_number_progenitors(m2, m1, mres, s_vs_m, ds_vs_m; kws...) / nProgTot
+cmf_progenitors(m2::Real, m1::Real, mres::Real, s_vs_m::Function, ds_vs_m::Function; kws...) = cmf_progenitors(m2, m1, mres, mean_number_progenitors(m1/2.0, m1, mres, s_vs_m, ds_vs_m), s_vs_m, ds_vs_m; kws...)
+
+function cmf_inv_progenitors(x::Real, m1::Real, mres::Real, s_vs_m::Function, ds_vs_m::Function; kws...) 
+    m1 <= 2.001*mres && return 0.0
+    nProgTot = mean_number_progenitors(m1/2.0, m1, mres, s_vs_m, ds_vs_m; kws...) 
+    return 10.0^find_zero(z -> x - cmf_progenitors(10.0^z, m1, mres, nProgTot, s_vs_m, ds_vs_m; kws...), (log10(mres), log10(m1/2.0)), Bisection(), xrtol=1e-3)
+end
+
+# Redfine functions for a given cosmology
+for f in (:mean_number_progenitors, :pdf_progenitors, :cmf_progenitors, :cmf_inv_progenitors)
+    @eval $f(args...; cosmology::Cosmology = planck18, kws...) = $f(args..., m->σ²_vs_M(m, SharpK, cosmology = cosmology),  m->dσ²_dM(m, SharpK, cosmology = cosmology); kws...)
+end
 
 mass_fraction_unresolved(m1::Real, mres::Real, s_vs_m::Function) =  sqrt(2. / π) / sqrt(s_vs_m(mres) - s_vs_m(m1))
 mass_fraction_unresolved(m1::Real, mres::Real; cosmology::Cosmology = planck18) =  mass_fraction_unresolved(m1, mres, m->σ²_vs_M(m, SharpK, cosmology=cosmology))
 
-pdf_progenitors(m2::Real, m1::Real, mres::Real, s_vs_m::Function, ds_vs_m::Function) =  (m2 < mres && return 0.0) || (return m1 / m2 / sqrt(2.0 * π) / (s_vs_M(m2) -  s_vs_m(m1))^(3/2) * abs(ds_vs_m(m2)) / mean_number_progenitors(m1/2.0, m1, mres, s_vs_m, ds_vs_m))
-pdf_progenitors(m2::Real, m1::Real, mres::Real; cosmology::Cosmology = planck18) = pdf_progenitors(m2, m1, mres, m->σ²_vs_M(m, SharpK, cosmology = cosmology),  m->dσ²_dM(m, SharpK, cosmology = cosmology))
-
-cmf_progenitors(m2::Real, m1::Real, mres::Real, nProgTot::Real; cosmology::Cosmology = planck18) = m2 > m1/2.0 ? 1.0 : mean_number_progenitors(m2, m1, mres, cosmology = cosmology) / nProgTot
-cmf_progenitors(m2::Real, m1::Real, mres::Real; cosmology::Cosmology = planck18) =  cmf_progenitors(m2, m1, mres, mean_number_progenitors(m1/2.0, m1, mres, cosmology = cosmology), cosmology = cosmology) 
-cmf_progenitors(m2::Real, m1::Real, mres::Real, nProgTot::Real, s_vs_m::Function, ds_vs_m::Function) = m2 > m1/2.0 ? 1.0 : mean_number_progenitors(m2, m1, mres, s_vs_m, ds_vs_m) / nProgTot
-cmf_progenitors(m2::Real, m1::Real, mres::Real, s_vs_m::Function, ds_vs_m::Function) = cmf_progenitors(m2, m1, mres, mean_number_progenitors(m2, m1, mres, s_vs_m, ds_vs_m), s_vs_m, ds_vs_m)
-
-function cmf_inv_progenitors(x::Real, m1::Real, mres::Real, s_vs_m::Function, ds_vs_m::Function) 
-    m1 <= 2.001*Mres && return 0.0
-    nProgTot = mean_number_progenitors(m1/2.0, m1, mres, s_vs_m, ds_vs_m) 
-    return 10.0^find_zero(z -> x - cmf_progenitors(10.0^z, m1, mres, nProgTot, s_vs_m, ds_vs_m), (log10(mres), log10(m1/2.0)), Bisection(), xrtol=1e-3)
-end
-
-cmf_inv_progenitors(x::Real, m1::Real, mres::Real; cosmology::Cosmology = planck18) = cmf_inv_progenitors(x, m1, mres, m->σ²_vs_M(m, SharpK, cosmology = cosmology),  m->dσ²_dM(m, SharpK, cosmology = cosmology))
 
 
+#############################
+## PREPARING THE MERGER TREE
 
-##########################
-## INTERPOLATION FUNCTIONS
+function interpolate_functions_PF(mhost::Real, mres::Real; cosmology::Cosmology=planck18)
 
-function interpolate_functions_PF(Mhost_init::Real, Mres::Real; cosmology::Cosmology=planck18)
-
-    log10m_P = range(log10(2.0 * Mres),stop=log10(Mhost_init),length=500)
-    log10m_F = range(log10(Mres),stop=log10(Mhost_init),length=1000)
-    function_log10P = interpolate((log10m_P,), log10.(mean_number_progenitors.(10.0 .^log10m_P  ./ 2.0, 10 .^log10m_P, Mres, cosmology=cosmology)),  Gridded(Linear()))
-    function_log10F = interpolate((log10m_F,), log10.(mass_fraction_unresolved.(10 .^log10m_F, Mres, cosmology=cosmology)),  Gridded(Linear()))
+    log10m_P = range(log10(2.0 * mres),stop=log10(mhost),length=500)
+    log10m_F = range(log10(mres),stop=log10(mhost),length=1000)
+    function_log10P = interpolate((log10m_P,), log10.(mean_number_progenitors.(10.0 .^log10m_P  ./ 2.0, 10 .^log10m_P, mres, cosmology=cosmology)),  Gridded(Linear()))
+    function_log10F = interpolate((log10m_F,), log10.(mass_fraction_unresolved.(10 .^log10m_F, mres, cosmology=cosmology)),  Gridded(Linear()))
   
-    function_P(M1::Real, Mres::Real) = M1 < 2.0*Mres ? 0 : 10.0^function_log10P(log10(M1))
-    function_F(M1::Real) = 10.0^function_log10F(log10(M1))
+    function_P(m1::Real, mres::Real) = m1 < 2.0*mres ? 0 : 10.0^function_log10P(log10(m1))
+    function_F(m1::Real) = 10.0^function_log10F(log10(m1))
     
     return function_P, function_F
 end
 
 
-function _save_cmf_inv_progenitors(mhost::Real, mres::Real, itp_S_vs_mass, itp_dS_vs_mass; p_array_size::Integer = 101, mass_array_size::Integer = 101,  cosmology::Cosmology = planck18)
+function save_data_merger_tree(mhost::Real, mres::Real; p_array_size::Integer = 101, mass_array_size::Integer = 101,  cosmology::Cosmology = planck18, kws...)
    
     q_array = range(-10.0, -2, length=p_array_size)
     p_array = range(0, 0.99, length = 100)
@@ -170,40 +168,51 @@ function _save_cmf_inv_progenitors(mhost::Real, mres::Real, itp_S_vs_mass, itp_d
     hash_value = hash((mhost, mres, cosmology.name))
     filenames = readdir("../cache/")
 
-    file = "cmf_inv_progenitors_" * string(hash_value, base=16) * ".jld2" 
+    file = "data_merger_tree_" * string(hash_value, base=16) * ".jld2" 
  
     if file in filenames
-        existing_data = jldopen("../cache/cmf_inv_progenitors_" * string(hash_value, base=16) * ".jld2")
+        existing_data = jldopen("../cache/data_merger_tree_" * string(hash_value, base=16) * ".jld2")
 
         if existing_data["q"] == q_array && existing_data["m1"] == m1_array
-            println("This file is already cached")
+            @info "| file to save is already cached"
             return nothing
         end
     end
     # -------------------------------------------
 
-    _cmf_inv_progenitors_high = cmf_inv_progenitors.((1.0 .- 10.0.^q_array)', m1_array, mres,  itp_S_vs_mass, itp_dS_vs_mass)
-    _cmf_inv_progenitors_low  = cmf_inv_progenitors.(p_array', m1_array, mres, itp_S_vs_mass, itp_dS_vs_mass)
+    s_vs_m , ds_vs_m = interpolation_s_vs_mass(cosmology)
 
-    jldsave("../cache/cmf_inv_progenitors_" * string(hash_value, base=16) * ".jld2"; 
+    _cmf_inv_progenitors_high = cmf_inv_progenitors.((1.0 .- 10.0.^q_array)', m1_array, mres, s_vs_m , ds_vs_m; kws...)
+    _cmf_inv_progenitors_low  = cmf_inv_progenitors.(p_array', m1_array, mres, s_vs_m , ds_vs_m; kws...)
+
+    log10m_P = range(log10(2.0 * mres),stop=log10(mhost),length=500)
+    log10m_F = range(log10(mres),stop=log10(mhost),length=1000)
+
+    log10P = log10.(mean_number_progenitors.(10.0 .^log10m_P  ./ 2.0, 10 .^log10m_P, mres, s_vs_m, ds_vs_m; kws...))
+    log10F = log10.(mass_fraction_unresolved.(10 .^log10m_F, mres, s_vs_m))
+    
+    jldsave("../cache/data_merger_tree_" * string(hash_value, base=16) * ".jld2"; 
         q = q_array, 
         p = p_array,
         m1 = m1_array, 
         cmf_high = _cmf_inv_progenitors_high,
-        cmf_low = _cmf_inv_progenitors_low)
+        cmf_low = _cmf_inv_progenitors_low,
+        log10m_P = log10m_P, 
+        log10m_F = log10m_F, 
+        log10P = log10P,
+        log10F = log10F)
 
 end
 
 
-function _load_cmf_inv_progenitors(mhost::Real, mres::Real, itp_S_vs_mass::Function, itp_dS_vs_mass::Function; cosmology::Cosmology = planck18)
+function load_data_merger_tree(mhost::Real, mres::Real; cosmology::Cosmology = planck18, kws...)
 
     hash_value = hash((mhost, mres, cosmology.name))
     filenames = readdir("../cache/")
 
-    file = "cmf_inv_progenitors_" * string(hash_value, base=16) * ".jld2" 
+    file = "data_merger_tree_" * string(hash_value, base=16) * ".jld2" 
 
     if file in filenames
-
 
         data = jldopen("../cache/" * file)
         q = data["q"]
@@ -211,25 +220,32 @@ function _load_cmf_inv_progenitors(mhost::Real, mres::Real, itp_S_vs_mass::Funct
         m1 = data["m1"]
         cmf_high = data["cmf_high"]
         cmf_low  = data["cmf_low"]
+        log10m_P = data["log10m_P"]
+        log10m_F = data["log10m_F"]
+        log10P = data["log10P"]
+        log10F = data["log10F"]
 
         log10_func_high = interpolate((q, log10.(m1),), log10.(cmf_high'), Gridded(Linear()))
         log10_func_low  = interpolate((p, log10.(m1),), log10.(cmf_low'), Gridded(Linear()))
         
-        function func(p::Real, m1::Real) 
-            if p <= 0.99
-                return 10.0.^log10_func_low(p, log10(m1)) 
-            elseif 0.99 < p <= 1.0-10.0^(-10)
-                return 10.0.^log10_func_high(log10(1.0-p), log10(m1))
-            else
-                return cmf_inv_progenitors(p, m1, mres, itp_S_vs_mass, itp_dS_vs_mass)
-            end
+        s_vs_m , ds_vs_m = interpolation_s_vs_mass(cosmology)
+
+        function itp_cmf_inv(p::Real, m1::Real) 
+            (p <= 0.99) && return 10.0.^log10_func_low(p, log10(m1))
+            (0.99 < p <= 1.0-10.0^(-10)) && return 10.0.^log10_func_high(log10(1.0-p), log10(m1))
+            return cmf_inv_progenitors(p, m1, mres, s_vs_m, ds_vs_m; kws...)
         end
 
-        return func
-
+        function_log10P = interpolate((log10m_P,), log10P,  Gridded(Linear()))
+        function_log10F = interpolate((log10m_F,), log10F,  Gridded(Linear()))
+      
+        itp_P(m1::Real, mres::Real) = m1 < 2.0*mres ? 0 : 10.0^function_log10P(log10(m1))
+        itp_F(m1::Real) = 10.0^function_log10F(log10(m1))
+        
+        return itp_cmf_inv, itp_P, itp_F
     end
 
-    return nothing
+    return nothing, nothing, nothing
 
 end
 
@@ -265,8 +281,6 @@ function one_step_merger_tree(P::Real, F::Real, m1::Real, mres::Real, cmf::Funct
 end
 
     
-
-
 
 function subhalo_mass_function(Mhost_init::Real, Mres::Real; 
                                 z_vs_Δω::Function = _z_vs_Δω,
@@ -372,8 +386,8 @@ end
 function subhalo_mass_function_binned(mhost::Real, mres::Real; 
     z_vs_Δω::Function = _z_vs_Δω,
     cosmology::Cosmology=planck18,
-    load_cmf_inv_progenitors::Bool = true,
-    save_cmf_inv_progenitors::Bool = true)
+    load_data::Bool = true,
+    save_data::Bool = true)
 
     # -------------------------------------------
     # Loading / computing precomputed tables
@@ -381,21 +395,22 @@ function subhalo_mass_function_binned(mhost::Real, mres::Real;
     @info "INITIALISATION"
     @info "| Precomputing or loading the interpolation tables"
 
-    function_P, function_F = interpolate_functions_PF(mhost, mres, cosmology=cosmology)
-    itp_S_vs_mass, itp_dS_vs_mass = interpolate_S_vs_mass()
+    s_vs_m, ds_vs_m = interpolation_s_vs_mass(cosmology)
 
     _cmf_inv_progenitors::Union{Nothing, Function} = nothing
 
-    if save_cmf_inv_progenitors === true
-        _save_cmf_inv_progenitors(mhost, mres, itp_S_vs_mass, itp_dS_vs_mass, cosmology = cosmology)
+    if save_data === true
+        save_data_merger_tree(mhost, mres, cosmology = cosmology)
     end
 
-    if load_cmf_inv_progenitors === true 
-        _cmf_inv_progenitors = _load_cmf_inv_progenitors(mhost, mres, itp_S_vs_mass, itp_dS_vs_mass, cosmology=cosmology)
+    if load_data === true 
+        _cmf_inv_progenitors, function_P, function_F = load_data_merger_tree(mhost, mres, cosmology=cosmology)
     end
 
-    if load_cmf_inv_progenitors === false || _cmf_inv_progenitors === nothing
-        _cmf_inv_progenitors = (x, m1) -> cmf_inv_progenitors(x, m1, mres, itp_S_vs_mass, itp_dS_vs_mass)
+    if load_data === false || _cmf_inv_progenitors === nothing
+        _cmf_inv_progenitors = (x, m1) -> cmf_inv_progenitors(x, m1, mres, s_vs_m, ds_vs_m)
+        function_P = m1 -> mean_number_progenitors(m1/2.0, m1, mres, s_vs_m, ds_vs_m)
+        function_P = m1 -> mass_fraction_unresolved(m1, mres, s_vs_m, ds_vs_m)
     end
 
     @info "INITIALISATION DONE: STARTING MERGER TREE"
