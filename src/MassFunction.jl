@@ -73,12 +73,11 @@ export interpolation_S_vs_mass
 
 mass_vs_S(S::Real; cosmology::Cosmology = planck18) = 10^(find_zero(y -> σ²_vs_M(10^y, SharpK, cosmology = cosmology) - S, (-20, 20), Bisection(), xrtol=1e-5))
 
-
 @doc raw"""
     interpolation_S_vs_mass(cosmology = planck18; range = range(-20, 20,length=2000)) -> (s_vs_m, ds_vs_m)
 
 Speeds up the computations by interpolating the variance of the power spectrum
-and its derivative with respect to the mass: ``\sigma^2(m)`` and ``{\rm d}\sigma^2 / {\rm d} m``
+and its derivative with respect to the mass: ``S(m) = \sigma^2(m)`` and ``{\rm d}\sigma^2 / {\rm d} m``
 Can be run for any choice of `cosmology::Cosmology` 
 and over the range `range::Vector{<:Real}`` in units of ``M_\odot``
 
