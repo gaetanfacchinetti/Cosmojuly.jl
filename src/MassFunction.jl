@@ -99,7 +99,7 @@ function interpolation_s_vs_mass(cosmology::Cosmology=planck18; range::Union{Abs
 end
 
 @doc raw"""
-    mean_number_progenitors(m, m1, mres, s_vs_m, ds_vs_m) 
+    mean_number_progenitors(m, m1, mres, [s_vs_m, ds_vs_m]; [cosmology, method, order, rtol]) 
 
 Mean number of progenitors between `mres` and `m` in a host of mass `m1` (per time step Δω)
 All masses must be in units of ``M_\odot``
@@ -118,16 +118,16 @@ function mean_number_progenitors(m::Real, m1::Real, mres::Real, s_vs_m::Function
 end
 
 @doc raw"""
-    pdf_progenitors(m2, m1, mres::Real, s_vs_m::Function, ds_vs_m::Function; kws...)
+    pdf_progenitors(m2, m1, mres::Real, s_vs_m, ds_vs_m; kws...)
 """
 pdf_progenitors(m2::Real, m1::Real, mres::Real, s_vs_m::Function, ds_vs_m::Function; kws...) =  (m2 < mres && return 0.0) || (return m1 / m2 / sqrt(2.0 * π) / (s_vs_m(m2) -  s_vs_m(m1))^(3/2) * abs(ds_vs_m(m2)) / mean_number_progenitors(m1/2.0, m1, mres, s_vs_m, ds_vs_m; kws...))
 cmf_progenitors(m2::Real, m1::Real, mres::Real, nProgTot::Real, s_vs_m::Function, ds_vs_m::Function; kws...) = m2 > m1/2.0 ? 1.0 : mean_number_progenitors(m2, m1, mres, s_vs_m, ds_vs_m; kws...) / nProgTot
 cmf_progenitors(m2::Real, m1::Real, mres::Real, s_vs_m::Function, ds_vs_m::Function; kws...) = cmf_progenitors(m2, m1, mres, mean_number_progenitors(m1/2.0, m1, mres, s_vs_m, ds_vs_m), s_vs_m, ds_vs_m; kws...)
 
 function cmf_inv_progenitors(x::Real, m1::Real, mres::Real, s_vs_m::Function, ds_vs_m::Function; kws...) 
-    m1 <= 2.001*mres && return 0.0
+    m1 <= 2.00001*mres && return mres
     nProgTot = mean_number_progenitors(m1/2.0, m1, mres, s_vs_m, ds_vs_m; kws...) 
-    return 10.0^find_zero(z -> x - cmf_progenitors(10.0^z, m1, mres, nProgTot, s_vs_m, ds_vs_m; kws...), (log10(mres), log10(m1/2.0)), Bisection(), xrtol=1e-3)
+    return 10.0^find_zero(z -> x - cmf_progenitors(10.0^z, m1, mres, nProgTot, s_vs_m, ds_vs_m; kws...), (log10(mres), log10(m1/2.0)), Bisection(), xrtol=1e-6)
 end
 
 # Redfine functions for a given cosmology
@@ -157,10 +157,10 @@ function interpolate_functions_PF(mhost::Real, mres::Real; cosmology::Cosmology=
 end
 
 
-function save_data_merger_tree(mhost::Real, mres::Real; p_array_size::Integer = 101, mass_array_size::Integer = 101,  cosmology::Cosmology = planck18, kws...)
+function save_data_merger_tree(mhost::Real, mres::Real; p_array_size::Integer = 51, mass_array_size::Integer = 51,  cosmology::Cosmology = planck18, kws...)
    
     q_array = range(-10.0, -2, length=p_array_size)
-    p_array = range(0, 0.99, length = 100)
+    p_array = range(0, 0.99, length = 101)
     m1_array = 10.0.^range(log10(2.0*mres), log10(mhost), length=mass_array_size)
 
     # -------------------------------------------
@@ -227,7 +227,7 @@ function load_data_merger_tree(mhost::Real, mres::Real; cosmology::Cosmology = p
 
         log10_func_high = interpolate((q, log10.(m1),), log10.(cmf_high'), Gridded(Linear()))
         log10_func_low  = interpolate((p, log10.(m1),), log10.(cmf_low'), Gridded(Linear()))
-        
+
         s_vs_m , ds_vs_m = interpolation_s_vs_mass(cosmology)
 
         function itp_cmf_inv(p::Real, m1::Real) 
@@ -262,16 +262,20 @@ function one_step_merger_tree(P::Real, F::Real, m1::Real, mres::Real, cmf::Funct
     msub1::Float64 = 0.0
     msub2::Float64 = 0.0
 
-    if (P < rand(Float64) || m1 < 2*mres)
-        if (m1 * (1-F) > mres) 
-            msub1 = m1 * (1-F)
+    if (P < rand(Float64) || m1 < 2.0*mres)
+        if (m1 * (1.0-F) > mres) 
+            msub1 = m1 * (1.0-F)
             n = 1
         end 
     else
         n = 1
-        msub1 = cmf(rand(Float64), m1)
-        if (m1 * (1-F) - msub1 > mres)
-            msub2 = m1 * (1-F) - msub1
+        y = rand(Float64)
+        if y == Inf || m1 == Inf
+            println(y, " ", m1, " ", mres, " ", P, " ", F)
+        end
+        msub1 = cmf(y, m1)
+        if (m1 * (1.0-F) - msub1 > mres)
+            msub2 = m1 * (1.0-F) - msub1
             n = n+1
         end
         
@@ -375,8 +379,6 @@ function subhalo_mass_function(Mhost_init::Real, Mres::Real;
             append!(m_host, Mhost)   
         end
 
-      
-
     end
 
     return subhalo_mass, m_host, z_steps, z_accretion
@@ -441,7 +443,7 @@ function subhalo_mass_function_binned(mhost::Real, mres::Real;
         i = i+1  
 
         if i%trunc(Int64, n_step_expected/10.0) == 0
-            @info "| i = ", i, ", z = ", z, ", n_sub = ", sum(z_bins)
+            @info "| i = ", convert(Int64, i), ", z = ", z, ", n_sub = ", convert(Int64, sum(z_bins))
         end
 
         δω = P / function_P(mmain, mres)
@@ -462,10 +464,6 @@ function subhalo_mass_function_binned(mhost::Real, mres::Real;
             
             mass_index = findfirst(min(msub1, msub2) / mhost .< mass_edges) - 1
             z_index    = searchsortedfirst(z_edges, z) - 1
-
-            if z_index == 0
-                println(z, " ", min(msub1, msub2), " ", mass_index)
-            end
 
             z_bins[mass_index, z_index] = z_bins[mass_index, z_index] + 1
         end
