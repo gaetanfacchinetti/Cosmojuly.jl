@@ -164,7 +164,7 @@ Give the variance of the function `matter_ps` smoothed on region of size `R_Mpc`
 """
 σ²(R_Mpc::Real, ::Type{T}, matter_ps::Function) where {T<:Window} = σ²(R_Mpc, T, matter_ps)
 σ²(R_Mpc::Real, ::Type{TopHat}, matter_ps::Function)   = log(20.0) - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)) * window_function(exp(lnk) * R_Mpc, TopHat)^2, -8.0, log(20.0) - log(R_Mpc), rtol=1e-4)[1] : 0.0
-σ²(R_Mpc::Real, ::Type{SharpK}, matter_ps::Function)   = - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)), -8.0, -log(R_Mpc), rtol=1e-3)[1] : 0.0
+σ²(R_Mpc::Real, ::Type{SharpK}, matter_ps::Function)   = - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)), -8.0, -log(R_Mpc), rtol=1e-8)[1] : 0.0
 σ²(R_Mpc::Real, ::Type{Gaussian}, matter_ps::Function) = log(4.0) - log(R_Mpc) > -8.0 ? quadgk(lnk -> matter_ps(exp(lnk)) * window_function(exp(lnk) * R_Mpc, Gaussian)^2, -8.0, log(4.0) - log(R_Mpc), rtol=1e-4)[1] : 0.0
 
 σ(R_Mpc::Real, ::Type{T} = TopHat; cosmology::Cosmology = planck18) where {T<:Window} = σ(R_Mpc, T, k->matter_power_spectrum(k, 0, cosmology = cosmology, dimensionless = true))

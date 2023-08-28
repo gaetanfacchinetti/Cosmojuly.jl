@@ -5,7 +5,7 @@ include("./BackgroundCosmo.jl")
 
 import Main.Cosmojuly.BackgroundCosmo: BkgCosmology, z_eq_mr, k_eq_mr_Mpc, planck18_bkg
 
-export transfer_function, TrivialTF, EH98, TransferFunctionModel
+export transfer_function, TrivialTF, EH98, TransferFunctionModel, EH98_planck18
 
 abstract type TransferFunctionModel end
 

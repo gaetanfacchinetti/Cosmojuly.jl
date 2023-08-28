@@ -89,8 +89,9 @@ in the evaluation of the power spectrum variance here it is imposed
 """
 function interpolation_s_vs_mass(cosmology::Cosmology=planck18; range::Union{AbstractRange, Vector{<:Real}} = range(-20, 20,length=2000))
 
-    function_log10_s_vs_mass = interpolate((range,), log10.(σ²_vs_M.(10 .^range, SharpK, cosmology=cosmology)),  Gridded(Linear()))
-    function_log10_ds_vs_mass = interpolate((range,), log10.(abs.(dσ²_dM.(10 .^range, SharpK, cosmology=cosmology))),  Gridded(Linear()))
+    function_log10_s_vs_mass = scale(interpolate(log10.(σ²_vs_M.(10 .^range, SharpK, cosmology=cosmology)), BSpline(Linear())), range)
+    #function_log10_s_vs_mass = linear_interpolation(range, log10.(σ²_vs_M.(10 .^range, SharpK, cosmology=cosmology)))
+    function_log10_ds_vs_mass = linear_interpolation(range, log10.(abs.(dσ²_dM.(10 .^range, SharpK, cosmology=cosmology))))
     
     itp_s_vs_m(m::Real)  = 10.0^function_log10_s_vs_mass(log10(m))
     itp_ds_vs_m(m::Real) = 10.0^function_log10_ds_vs_mass(log10(m))
@@ -110,10 +111,20 @@ function mean_number_progenitors(m::Real, m1::Real, mres::Real, s_vs_m::Function
     if (m < mres || m > m1 / 2.0)
         return 0.0
     end
-   
-    integrand(m2::Real, s1::Real) = 1.0 / m2 / (s_vs_m(m2) - s1)^(3/2) * abs(ds_vs_m(m2))
-    res_integral = quad(ln_m2 -> integrand(exp(ln_m2), s_vs_m(m1)) * exp(ln_m2), log(mres), log(m), method=method, order=order, rtol = rtol)
     
+    function integrand(m2::Real, s1::Real, m1) 
+        res = 0
+        try
+            res = 1.0 / m2 / (s_vs_m(m2) - s1)^(3/2) * abs(ds_vs_m(m2))
+        catch
+            println(m2, " ", s1, " ", m1)
+            return
+        end
+        return res
+    end
+
+    res_integral = quad(ln_m2 -> integrand(exp(ln_m2), s_vs_m(m1), m1) * exp(ln_m2), log(mres), log(m), method=method, order=order, rtol = rtol)
+
     return  m1 / sqrt(2.0 * π)  * res_integral[1]
 end
 
@@ -180,7 +191,7 @@ function save_data_merger_tree(mhost::Real, mres::Real; p_array_size::Integer = 
     end
     # -------------------------------------------
 
-    s_vs_m , ds_vs_m = interpolation_s_vs_mass(cosmology)
+    s_vs_m , ds_vs_m = interpolation_s_vs_mass(cosmology, range=range(log10(mres), log10(mhost), 10000))
 
     _cmf_inv_progenitors_high = cmf_inv_progenitors.((1.0 .- 10.0.^q_array)', m1_array, mres, s_vs_m , ds_vs_m; kws...)
     _cmf_inv_progenitors_low  = cmf_inv_progenitors.(p_array', m1_array, mres, s_vs_m , ds_vs_m; kws...)
@@ -397,7 +408,7 @@ function subhalo_mass_function_binned(mhost::Real, mres::Real;
     @info "INITIALISATION"
     @info "| Precomputing or loading the interpolation tables"
 
-    s_vs_m, ds_vs_m = interpolation_s_vs_mass(cosmology)
+    s_vs_m, ds_vs_m = interpolation_s_vs_mass(cosmology, range=range(log10(mres), log10(mhost), 1000))
 
     _cmf_inv_progenitors::Union{Nothing, Function} = nothing
 
@@ -485,7 +496,7 @@ end
 
 function interpolate_functions_z(z0::Real = 0; growth_function::Function = growth_factor_Carroll, δ_c::Real = 1.686)
    
-    log10_Δω = range(-10,stop=2,length=5000)
+    log10_Δω = range(-10,stop=3,length=5000)
     function_log10_z = interpolate((log10_Δω,), log10.(_z_vs_Δω.(10.0.^log10_Δω, z0, growth_function=growth_function, δ_c=δ_c)),  Gridded(Linear()))
     
     function_z(Δω::Real) = 10.0^function_log10_z(log10(Δω))
