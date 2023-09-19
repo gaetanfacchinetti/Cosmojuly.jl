@@ -1,10 +1,16 @@
 
 module FSLModel
 
-#include("./Halos.jl")
+include("./Halos.jl")
+
+import QuadGK: quadgk
 
 import Main.Cosmojuly.BackgroundCosmo: BkgCosmology, planck18_bkg
 import Main.Cosmojuly.PowerSpectrum: Cosmology, planck18
+import Main.Cosmojuly.Halos: Halo, HaloProfile, NFWProfile, αβγProfile
+
+import Main.Cosmojuly.Halos.ρ as ρ_halo
+import Main.Cosmojuly.Halos.μ as μ_halo
 
 export subhalo_mass_function_template
 export mass_function_merger_tree
@@ -65,47 +71,55 @@ end
 median_concentration_SCP12(mΔ::Real, bkg_cosmo::BkgCosmology = planck18_bkg) = median_concentration_SCP12(mΔ, bkg_cosmo.h)
 median_concentration_SCP12(mΔ::Real, cosmo::Cosmology = planck18) = median_concentration_SCP12(mΔ, cosmo.bkg.h)
 
-
 #############################################################
 
 # Model of galaxies
 
-struct Bulge{T<:Real}
-    ρ0b::T
-    r0::T
-    q::T
-    rcut::T
-end
-
-abstract type Disc{T<:Real} end
-
-struct StellarDisc{T<:Real} <: Disc{T}
-    Σ0::T
-    zd::T
-    Rd::T
-end
+export density_HI, density_baryons_spherical
 
 # Definition of the profiles
-density_spherical_BG02() = 0
-density_exponential_disc(R::Real, z::Real; Σ0::Real, Rd::Real, zd::Real) = Σ0/(2.0*zd)*exp(-abs(z)/zd - R/Rd)
-density_sech_disc(R::Real, z::Real; Σ0::Real, Rd::Real, Rm::Real, zd::Real)  = Σ0/(4.0*zd)*exp(-Rm/R - R/Rd)*(sech(z/(2.0*zd)))^2
-
-density_exponential_disc(R::Real, z::Real; stellar_disc::StellarDisc) = density_exponential_disc(R, z, Σ0 = stellar_disc.Σ0, Rd = stellar_disc.Rd, zd = stellar_disc.zd)
-
-struct GasDisc{T<:Real} <: Disc{T}
-    Σ0::T
-    zd::T
-    Rm::T
-    Td::T
+function density_spherical_BG02(r::Real, z::Real; ρ0b::Real, r0::Real, q::Real, α::Real, rcut::Real) 
+    rp = sqrt(r^2 + (z/q)^2)
+    return ρ0b/(1+rp/r0)^α * exp(-(rp/rcut)^2)
 end
 
-struct DiscGalaxy
-    halo::Halo
-    thick_stellar_disk::StellarDisk
-    thin_stellar_disk::StellarDisk
+density_exponential_disc(r::Real, z::Real; σ0::Real, rd::Real, zd::Real) = σ0/(2.0*zd)*exp(-abs(z)/zd - r/rd)
+density_sech_disc(r::Real, z::Real; σ0::Real, rd::Real, rm::Real, zd::Real) = σ0/(4.0*zd)*exp(-rm/r - r/rd)*(sech(z/(2.0*zd)))^2
+
+abstract type GalaxyModel end
+abstract type MM17Model <: GalaxyModel end
+abstract type MM17Gamma1 <: MM17Model end
+abstract type MM17Gamma0 <: MM17Model end
+abstract type MM17GammaFree <: MM17Model end
+
+# we take the median value of the MCMC
+halo(::Type{MM17Gamma1})    = Halo_from_ρs_and_rs(αβγProfile(1, 3, 1), 9.24412866426226e+15, 1.86e-2)
+halo(::Type{MM17Gamma0})    = Halo_from_ρs_and_rs(αβγProfile(1, 3, 0), 9.086059744049174e+16, 7.7e-3)
+halo(::Type{MM17GammaFree}) = Halo_from_ρs_and_rs(αβγProfile(1.0, 3.0, 0.79), 1.5300738158389776e+16, 1.54e-2)
+
+halo(::Type{T} = MM17Gamma1) where {T<:GalaxyModel} = halo(T)
+density_dm(r::Real, ::Type{T} = MM17Gamma1) where {T <: MM17Model} = ρ_halo(r, halo(T))
+
+density_HI(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = density_sech_disc(r, z, σ0=5.31e+13, rd=8.5e-5, rm=4.0e-3, zd=7.0e-3)
+density_H2(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = density_sech_disc(r, z, σ0=2.180e+15, rd=4.5e-5, rm=1.2e-2, zd=1.5e-3)
+density_bulge(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = density_spherical_BG02(r, z, ρ0b = 9.73e+19, r0 = 7.5e-5, q = 0.5, α = 1.8, rcut = 2.1e-3)
+density_thick_stellar_disc(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = density_exponential_disc(r, z, σ0=1.487e+14, rd =9.0e-4, zd=3.29e-3)
+density_thin_stellar_disc(r::Real, z::Real, ::Type{MM17Gamma1})    = density_exponential_disc(r, z, σ0=8.87e+14, rd=3.0e-4, zd=2.53e-3)
+density_thin_stellar_disc(r::Real, z::Real, ::Type{MM17Gamma0})    = density_exponential_disc(r, z, σ0=8.87e+14, rd=3.0e-4, zd=2.36e-3)
+density_thin_stellar_disc(r::Real, z::Real, ::Type{MM17GammaFree}) = density_exponential_disc(r, z, σ0=8.87e+14, rd=3.0e-4, zd=2.51e-3)
+density_thin_stellar_disc(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:MM17Model} = density_thin_stellar_disc(r, z, T)
+
+density_baryons(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:GalaxyModel} = density_HI(r, z, T) + density_H2(r, z, T) + density_bulge(r, z, T) + density_thick_stellar_disc(r, z, T) + density_thin_stellar_disc(r, z, T)
+density_ISM(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:GalaxyModel} = density_HI(r, z, T) + density_H2(r, z, T)
+
+function der_density_baryons_spherical(xp::Real, r::Real, ::Type{T}) where {T<:MM17Model}
+    y = sqrt(1 - xp^2)
+    return xp/y * (density_baryons(r * xp, -y, T) + density_baryons(r * xp, y, T))
 end
 
+density_baryons_spherical(r::Real, ::Type{T} = MM17Gamma1) where {T<:GalaxyModel} = quadgk(xp -> der_density_baryons_spherical(xp, r, T), 0, 1, rtol=1e-4)[1] 
 
+#mvir(::Type{T} = MM17Gamma1) where {T<:GalaxyModel} = m_halo(, halo(T)) -> need to implement
 
 
 end # module FSL

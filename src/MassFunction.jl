@@ -141,7 +141,7 @@ function cmf_inv_progenitors(x::Real, m1::Real, mres::Real, s_vs_m::Function, ds
     return 10.0^find_zero(z -> x - cmf_progenitors(10.0^z, m1, mres, nProgTot, s_vs_m, ds_vs_m; kws...), (log10(mres), log10(m1/2.0)), Bisection(), xrtol=1e-6)
 end
 
-# Redfine functions for a given cosmology
+# redefine functions for a given cosmology
 for f in (:mean_number_progenitors, :pdf_progenitors, :cmf_progenitors, :cmf_inv_progenitors)
     @eval $f(args...; cosmology::Cosmology = planck18, kws...) = $f(args..., m->σ²_vs_M(m, SharpK, cosmology = cosmology),  m->dσ²_dM(m, SharpK, cosmology = cosmology); kws...)
 end
