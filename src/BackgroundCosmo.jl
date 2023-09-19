@@ -54,7 +54,7 @@ struct FlatFLRW{T<:Real} <: FLRW{T}
     k_eq_mr_Mpc::T
     
     # Quantity with units
-    ρ_c0_Msun_Mpc3::T
+    ρ_c0::T
     T0_CMB_K::T
 
 end
@@ -90,7 +90,7 @@ function FlatFLRW(h::Real, Ω_χ0::Real, Ω_b0::Real; T0_CMB_K::Real = 2.72548, 
     Ω_m0 = Ω_χ0 + Ω_b0
     Ω_Λ0 = 1 - Ω_m0 - Ω_r0
  
-    ρ_c0_Msun_Mpc3 =  3/(8*π*G_NEWTON) * (100 * h * km / s / Mpc )^2 / (Msun / Mpc^3)
+    ρ_c0 =  3/(8*π*G_NEWTON) * (100 * h * km / s / Mpc )^2 / (Msun / Mpc^3)
 
     z_eq_mr = 0.0
     z_eq_Λm = 0.0
@@ -105,7 +105,7 @@ function FlatFLRW(h::Real, Ω_χ0::Real, Ω_b0::Real; T0_CMB_K::Real = 2.72548, 
 
     k_eq_mr_Mpc =  Ω_r0 / Ω_m0 * (100. * h * sqrt(Ω_m0 * (1+z_eq_mr)^3 + Ω_r0 * (1+z_eq_mr)^4 + Ω_Λ0) * km / s / c_0) |> NoUnits
 
-    return FlatFLRW(promote(h, Ω_χ0, Ω_b0, Ω_m0, Ω_r0, Ω_γ0, Ω_ν0, Ω_Λ0, z_eq_mr, z_eq_Λm, k_eq_mr_Mpc, ρ_c0_Msun_Mpc3, T0_CMB_K)...) 
+    return FlatFLRW(promote(h, Ω_χ0, Ω_b0, Ω_m0, Ω_r0, Ω_γ0, Ω_ν0, Ω_Λ0, z_eq_mr, z_eq_Λm, k_eq_mr_Mpc, ρ_c0, T0_CMB_K)...) 
 end
 
 #########################################################
@@ -158,28 +158,28 @@ abstract type DarkEnergy <: Species end
 # All densities are in units of Msun / Mpc^3 
 
 """ Critical density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_c_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.ρ_c0_Msun_Mpc3 * (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+ρ_c_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.ρ_c0 * (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
 
 """ Radiation density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_r_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_r0 * cosmo.ρ_c0_Msun_Mpc3 * (1+z)^4
+ρ_r_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_r0 * cosmo.ρ_c0 * (1+z)^4
 
 """ Photon density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_γ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_γ0 * cosmo.ρ_c0_Msun_Mpc3 * (1+z)^4
+ρ_γ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_γ0 * cosmo.ρ_c0 * (1+z)^4
 
 """ Neutrino density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_ν_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_ν0 * cosmo.ρ_c0_Msun_Mpc3 * (1+z)^4
+ρ_ν_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_ν0 * cosmo.ρ_c0 * (1+z)^4
 
 """ Matter density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_m_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_m0 * cosmo.ρ_c0_Msun_Mpc3 * (1+z)^3
+ρ_m_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_m0 * cosmo.ρ_c0 * (1+z)^3
 
 """ Cold dark matter density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_χ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_χ0 * cosmo.ρ_c0_Msun_Mpc3 * (1+z)^3
+ρ_χ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_χ0 * cosmo.ρ_c0 * (1+z)^3
 
 """ Baryon density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_b_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_b0 * cosmo.ρ_c0_Msun_Mpc3 * (1+z)^3
+ρ_b_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_b0 * cosmo.ρ_c0 * (1+z)^3
 
 """ Cosmological constant density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_Λ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_Λ0 * cosmo.ρ_c0_Msun_Mpc3
+ρ_Λ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_Λ0 * cosmo.ρ_c0
 #########################################################
 
 
