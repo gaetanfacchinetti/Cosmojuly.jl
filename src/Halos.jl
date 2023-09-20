@@ -30,7 +30,7 @@ import PhysicalConstants.CODATA2018: c_0, G as G_NEWTON
 import Main.Cosmojuly.PowerSpectrum: Cosmology, planck18
 import Main.Cosmojuly.BackgroundCosmo: planck18_bkg
 
-export Halo, NFWProfile, αβγProfile, HaloProfile
+export Halo, nfwProfile, αβγProfile, HaloProfile, coreProfile
 export halo_from_ρs_and_rs, halo_from_mΔ_and_cΔ
 export mΔ_from_ρs_and_rs, mΔ, rΔ_from_ρs_and_rs, rΔ, ρ_halo, μ_halo, m_halo
 
@@ -45,14 +45,20 @@ struct αβγProfile{T<:Real} <: HaloProfile{T}
     γ::T
 end
 
+# definition of length and iterator on our struct
+# allows to use f.(x, y) where y is of type HaloProfile
+Base.length(::HaloProfile) = 1
+Base.iterate(iter::HaloProfile) = (iter, nothing)
+Base.iterate(::HaloProfile, state::Nothing) = nothing
+
+# constructor method of αβγProfile
 αβγProfile(α::Real, β::Real, γ::Real) = αβγProfile(promote(α, β, γ)...)
 
-## Definition of densities and mass profiles
-NFWProfile = αβγProfile(1, 3, 1)
-ρ_halo(x::Real, p::αβγProfile = NFWProfile) = x^(-p.γ) * (1+x^p.α)^(-(p.β - p.γ)/p.α)
-ρ_halo(x::Vector{<:Real}, p::αβγProfile = NFWProfile) = x.^(-p.γ) .* (1 .+ x.^p.α).^(-(p.β - p.γ)/p.α)
-μ_halo(x::Real, p::αβγProfile = NFWProfile) = HypergeometricFunctions._₂F₁((3 - p.γ)/p.α, (p.β - p.γ)/p.α, (3 + p.α - p.γ)/p.α, -x^p.α) * x^(3-p.γ) / (3-p.γ)
-μ_halo(x::Vector{<:Real}, p::αβγProfile = NFWProfile) = HypergeometricFunctions._₂F₁.((3 - p.γ)/p.α, (p.β - p.γ)/p.α, (3 + p.α - p.γ)/p.α, -x.^p.α) .* x.^(3-p.γ) ./ (3-p.γ)
+## definition of densities and mass profiles
+const nfwProfile::αβγProfile = αβγProfile(1, 3, 1)
+const coreProfile::αβγProfile = αβγProfile(1, 3, 0)
+ρ_halo(x::Real, p::αβγProfile = nfwProfile) = x^(-p.γ) * (1+x^p.α)^(-(p.β - p.γ)/p.α)
+μ_halo(x::Real, p::αβγProfile = nfwProfile) = HypergeometricFunctions._₂F₁((3 - p.γ)/p.α, (p.β - p.γ)/p.α, (3 + p.α - p.γ)/p.α, -x^p.α) * x^(3-p.γ) / (3-p.γ)
 
 
 ################################################
@@ -63,21 +69,25 @@ NFWProfile = αβγProfile(1, 3, 1)
 # Otherwise unit conversion slightly slow down the code
 
 ## Definition of relationships between concentration, mass, scale density and scale radius
-function cΔ_from_ρs(ρs::Real, hp::HaloProfile = NFWProfile, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0)
+function cΔ_from_ρs(ρs::Real, hp::HaloProfile = nfwProfile, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0)
     g(c) = c^3 / μ(c, hp) - 3 * ρs / Δ / ρ_ref
     Roots.find_zero(g, (1e-10, 1e+10), Bisection()) 
 end
 
-mΔ_from_ρs_and_rs(ρs::Real, rs::Real, hp::HaloProfile = NFWProfile, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) = 4 * pi * ρs * rs^3 * μ_halo(cΔ_from_ρs(ρs, hp, Δ, ρ_ref), hp)
-ρs_from_cΔ(cΔ::Real, hp::HaloProfile = NFWProfile , Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) = Δ * ρ_ref  / 3 * cΔ^3 / μ_halo(cΔ, hp) 
+mΔ_from_ρs_and_rs(ρs::Real, rs::Real, hp::HaloProfile = nfwProfile, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) = 4 * pi * ρs * rs^3 * μ_halo(cΔ_from_ρs(ρs, hp, Δ, ρ_ref), hp)
+ρs_from_cΔ(cΔ::Real, hp::HaloProfile = nfwProfile , Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) = Δ * ρ_ref  / 3 * cΔ^3 / μ_halo(cΔ, hp) 
 rs_from_cΔ_and_mΔ(cΔ::Real, mΔ::Real, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) =  (3 * mΔ / (4 * pi * Δ * ρ_ref))^(1 // 3) / cΔ 
-rΔ_from_ρs_and_rs(ρs::Real, rs::Real, hp::HaloProfile = NFWProfile, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) = (3 * mΔ_from_ρs_and_rs(ρs, rs, hp, Δ, ρ_ref) / (4*π*Δ*ρ_ref))^(1//3)
+rΔ_from_ρs_and_rs(ρs::Real, rs::Real, hp::HaloProfile = nfwProfile, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) = (3 * mΔ_from_ρs_and_rs(ρs, rs, hp, Δ, ρ_ref) / (4*π*Δ*ρ_ref))^(1//3)
 
 struct Halo{T<:Real}
     hp::HaloProfile
     ρs::T
     rs::T
 end
+
+Base.length(::Halo) = 1
+Base.iterate(iter::Halo) = (iter, nothing)
+Base.iterate(::Halo, state::Nothing) = nothing
 
 halo_from_ρs_and_rs(hp::HaloProfile, ρs::Real, rs::Real) = Halo(hp, promote(ρs, rs)...)
 
@@ -88,9 +98,7 @@ function halo_from_mΔ_and_cΔ(hp::HaloProfile, mΔ::Real, cΔ::Real;  Δ::Real 
 end
 
 ρ_halo(r::Real, h::Halo{<:Real}) = h.ρs * ρ_halo(r/h.rs, h.hp)
-ρ_halo(r::Vector{<:Real}, h::Halo{<:Real}) = h.ρs * ρ_halo(r./h.rs, h.hp)
 m_halo(r::Real, h::Halo{<:Real}) = 4.0 * π * h.ρs * h.rs^3 * μ_halo(r/h.rs, h.hp)
-m_halo(r::Vector{<:Real}, h::Halo{<:Real}) = 4.0 * π * h.ρs * h.rs^3 * μ_halo(r./h.rs, h.hp)
 mΔ(h::Halo{<:Real}, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) = mΔ_from_ρs_and_rs(h.ρs, h.rs, h.hp, Δ, ρ_ref)
 rΔ(h::Halo{<:Real}, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) = rΔ_from_ρs_and_rs(h.ρs, h.rs, h.hp, Δ, ρ_ref)
 
