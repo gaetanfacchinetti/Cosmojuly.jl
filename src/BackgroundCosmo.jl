@@ -12,7 +12,7 @@ export planck18_bkg, convert_cosmo, FlatFLRW
 export hubble_constant
 export z_eq_mr, z_eq_Λm, z_to_a, a_to_z, universe_age, temperature_CMB_K, k_eq_mr_Mpc
 export growth_factor, growth_factor_Carroll
-export lookback_time
+export lookback_time, lookback_redshift
 
 
 @doc raw"""
@@ -216,13 +216,14 @@ k_eq_mr_Mpc(cosmo::BkgCosmology)::Real = cosmo.k_eq_mr_Mpc
 # Definition of specific time quantities
 z_to_a(z::Real)::Real = 1 /(1 + z)
 a_to_z(a::Real)::Real = 1 / a - 1
-z_eq_mr(cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.z_eq_mr
-z_eq_Λm(cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.z_eq_Λm
-a_eq_mr(cosmo::BkgCosmology = planck18_bkg)::Real = z_to_a(cosmo.z_eq_mr)
-a_eq_Λm(cosmo::BkgCosmology = planck18_bkg)::Real = z_to_a(cosmo.z_eq_Λm)
-δt_s(a0, a1, cosmo::BkgCosmology = planck18_bkg; kws...)::Real = QuadGK.quadgk(a -> 1.0 / hubble_evolution(a_to_z(a), cosmo) / a, a0, a1, rtol=1e-3; kws...)[1] / (hubble_constant(cosmo) * km / Mpc)
-universe_age(z=0, cosmo::BkgCosmology = planck18_bkg; kws...)::Real = δt_s(0, z_to_a(z), cosmo; kws...)
-lookback_time(z, cosmo::BkgCosmology = planck18_bkg; kws...)::Real = δt_s(z_to_a(z), 1, cosmo; kws...)
+z_eq_mr(cosmo::BkgCosmology = planck18_bkg) = cosmo.z_eq_mr
+z_eq_Λm(cosmo::BkgCosmology = planck18_bkg) = cosmo.z_eq_Λm
+a_eq_mr(cosmo::BkgCosmology = planck18_bkg) = z_to_a(cosmo.z_eq_mr)
+a_eq_Λm(cosmo::BkgCosmology = planck18_bkg) = z_to_a(cosmo.z_eq_Λm)
+δt_s(a0::Real, a1::Real, cosmo::BkgCosmology = planck18_bkg; kws...) = QuadGK.quadgk(a -> 1.0 / hubble_evolution(a_to_z(a), cosmo) / a, a0, a1, rtol=1e-3; kws...)[1] / (hubble_constant(cosmo) * km / Mpc)
+universe_age(z::Real =0, cosmo::BkgCosmology = planck18_bkg; kws...) = δt_s(0, z_to_a(z), cosmo; kws...)
+lookback_time(z::Real, cosmo::BkgCosmology = planck18_bkg; kws...) = δt_s(z_to_a(z), 1, cosmo; kws...)
+lookback_redshift(t::Real, cosmo::BkgCosmology = planck18_bkg; kws...) = exp(find_zero(lnz -> lookback_time(exp(lnz), cosmo; kws...)-t, (-5, 10), Bisection())) 
 #########################################################
 
 
