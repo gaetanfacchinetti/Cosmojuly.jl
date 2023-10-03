@@ -91,4 +91,20 @@ m_baryons_spherical(r::Real, ::Type{T}) where {T<:DMOnlyMM17Model} = 0.0
 m_host_spherical(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = m_baryons_spherical(r, T) + m_halo(r, host_halo(T))
 μ_host_spherical(x::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = μ_baryons_spherical(x, T) + μ_halo(x, host_profile(T))
 
+## Possibility to interpolate the model
+function _interpolate_host(::Type{T}) where {T<:HostModel}
+    """ change that to a save function """
+
+    rs = host_halo(T).rs
+    log10_r_arr = range(log10(1e-5 * rs), log10(1e+5 * rs), 1000)
+
+    log10ρ_host = interpolate((log10_r_arr,), log10.(ρ_host_spherical(10.0.^log10_r_arr, T)),  Gridded(Linear()))
+    log10ρ_baryons = interpolate((log10_r_arr,), log10.(ρ_baryons_spherical(10.0.^log10_r_arr, T)),  Gridded(Linear()))
+    log10m_host = interpolate((log10_r_arr,), log10.(m_host_spherical(10.0.^log10_r_arr, T)),  Gridded(Linear()))
+    log10m_baryons = interpolate((log10_r_arr,), log10.(m_baryons_spherical(10.0.^log10_r_arr, T)),  Gridded(Linear()))
+
+    ρ_host_spherical(r::Real) = 10.0^log10ρ_host(log10(r))
+
+end
+
 end # module Hosts

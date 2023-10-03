@@ -65,7 +65,7 @@ end
 function median_concentration_SCP12(mΔ::Real, h::Real)
     cn::Vector = [37.5153, -1.5093, 1.636e-2, 3.66e-4, -2.89237e-5, 5.32e-7]
     mΔ_min = (mΔ > 7.24e-10) ? mΔ : 7.24e-10
-    return sum(cn .* log(mΔ_min * h).^ (0:5))
+    return sum(cn .* log(mΔ_min * h).^(0:5))
 end
 
 median_concentration_SCP12(mΔ::Real, bkg_cosmo::BkgCosmology = planck18_bkg) = median_concentration_SCP12(mΔ, bkg_cosmo.h)
@@ -78,7 +78,7 @@ reduced_ρ_host(r::Real, ::Type{T}) where {T<:HostModel} = 4 * π * r^3 *  ρ_ho
 function jacobi_scale(r::Real, ρs::Real, hp::HaloProfile, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
     _ρ = reduced_ρ_host(r, T)
     _to_zero(xt::Real) = xt^3/μ_halo(xt, hp) - ρs/ρ_host_spherical(r, T) * _ρ / (1.0 - _ρ)
-    return exp(Roots.find_zero(lnxt -> _to_zero(exp(lnxt)), (-10, +10), Bisection())) 
+    return exp(Roots.find_zero(lnxt -> _to_zero(exp(lnxt)), (-5, +5), Bisection())) 
 end 
 
 jacobi_scale(r::Real, h::Halo{<:Real}, ::Type{T} = MM17Gamma1) where {T<:HostModel} = jacobi_scale(r, h.ρs, h.hp, T)
