@@ -30,7 +30,7 @@ In the following we detail the different expressions of the functions $\mathcal{
 ### The initial function
 
 The initial distribution of subalos _at accretion_ can be written as a product of probability density functions on the space spanned by the variable $s_0$. In practice we write
-$$ \mathcal{I}(s_0, z_0)  = p_{(s_0, z_0)}(s_0, z_0\, | \, z) = p_{(m_0, z_0)}(m_0, z_0) p(c_0 \, | \, m_0, z_0) p_{\vec{r}_0}(\vec{r}_0 \, |\, z_0) \, .$$
+$$ \mathcal{I}(s_0, z_0)  = p_{(s_0, z_0)}(s_0, z_0) = p_{(m_0, z_0)}(m_0, z_0) p(c_0 \, | \, m_0, z_0) p_{\vec{r}_0}(\vec{r}_0 \, |\, z_0) \, .$$
 The mass and accretion redshift density $p_{(m_0, z_0)}(m_0, z_0) = p_{m_0}(m_0 \, | \, z_0) p_{z_0}(z_0) $ is given by the subhalo mass function
 
 $$ p_{m_0}(m_0, z_0) = \frac{1}{N_0} \frac{\partial^2 N}{\partial m_0 \partial z_0}(m_0, z_0) = \frac{p_{z_0}(z_0)}{N_0} \frac{\partial N}{\partial m_0} (m_0 \, | \, z_0) $$

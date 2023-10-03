@@ -70,7 +70,7 @@ const coreProfile::αβγProfile = αβγProfile(1, 3, 0)
 
 ## Definition of relationships between concentration, mass, scale density and scale radius
 function cΔ_from_ρs(ρs::Real, hp::HaloProfile = nfwProfile, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0)
-    g(c) = c^3 / μ(c, hp) - 3 * ρs / Δ / ρ_ref
+    g(c::Real) = c^3 / μ(c, hp) - 3 * ρs / Δ / ρ_ref
     Roots.find_zero(g, (1e-10, 1e+10), Bisection()) 
 end
 
@@ -88,6 +88,7 @@ end
 Base.length(::Halo) = 1
 Base.iterate(iter::Halo) = (iter, nothing)
 Base.iterate(::Halo, state::Nothing) = nothing
+
 
 halo_from_ρs_and_rs(hp::HaloProfile, ρs::Real, rs::Real) = Halo(hp, promote(ρs, rs)...)
 

@@ -1,17 +1,19 @@
 
 module FSLModel
 
-include("./Galaxies.jl")
+include("./Hosts.jl")
 
 import QuadGK: quadgk
+using Roots
 
 import Main.Cosmojuly.BackgroundCosmo: BkgCosmology, planck18_bkg
 import Main.Cosmojuly.PowerSpectrum: Cosmology, planck18
 import Main.Cosmojuly.Halos: Halo, HaloProfile, nfwProfile, αβγProfile, halo_from_ρs_and_rs, m_halo, ρ_halo, μ_halo, coreProfile, mΔ
-import Main.Cosmojuly.Galaxies: GalaxyModel, MM17Model, MM17Gamma1, MM17Gamma0, MM17GammaFree, galactic_halo
+import Main.Cosmojuly.Hosts: HostModel, MM17Model, MM17Gamma1, MM17Gamma0, MM17GammaFree, host_halo, ρ_host_spherical, m_host_spherical
 
 export subhalo_mass_function_template
 export mass_function_merger_tree
+export jacobi_radius
 
 #############################################################
 # Defnitions of basic functions
@@ -31,7 +33,7 @@ end
 
 
 @doc raw"""
-    mass_function_merger_tree(mΔ_sub, mΔ_host)
+    pdf_virial_mass(mΔ_sub, mΔ_host)
 
 Example of subhalo mass function fitted on merger tree results
 (Facchinetti et al., in prep.)
@@ -43,7 +45,7 @@ Example of subhalo mass function fitted on merger tree results
 # Returns
 - ``\frac{\partial N(m_Δ^{\rm sub}, z=0)}{\partial m_Δ^{\rm sub}}``
 """
-function mass_function_merger_tree(mΔ_sub::Real, mΔ_host::Real) 
+function pdf_virial_mass(mΔ_sub::Real, mΔ_host::Real, z_acc::Real = 0) 
     return subhalo_mass_function_template(mΔ_sub / mΔ_host, 0.019, 1.94, 0.464, 1.58, 24.0, 3.4)/mΔ_host
 end
 
@@ -69,8 +71,17 @@ end
 median_concentration_SCP12(mΔ::Real, bkg_cosmo::BkgCosmology = planck18_bkg) = median_concentration_SCP12(mΔ, bkg_cosmo.h)
 median_concentration_SCP12(mΔ::Real, cosmo::Cosmology = planck18) = median_concentration_SCP12(mΔ, cosmo.bkg.h)
 
-pdf_position(r::Real, ::Type{T} = MM17Gamma1) where {T<:GalaxyModel} = 4 * π  * r^2 * ρ_halo(r, galactic_halo(T)) / mΔ(galactic_halo(T))
+pdf_position(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = 4 * π  * r^2 * ρ_halo(r, host_halo(T)) / mΔ(host_halo(T))
 
+reduced_ρ_host(r::Real, ::Type{T}) where {T<:HostModel} = 4 * π * r^3 *  ρ_host_spherical(r, T) / 3.0 / m_host_spherical(r, T)
 
+function jacobi_scale(r::Real, ρs::Real, hp::HaloProfile, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
+    _ρ = reduced_ρ_host(r, T)
+    _to_zero(xt::Real) = xt^3/μ_halo(xt, hp) - ρs/ρ_host_spherical(r, T) * _ρ / (1.0 - _ρ)
+    return exp(Roots.find_zero(lnxt -> _to_zero(exp(lnxt)), (-10, +10), Bisection())) 
+end 
+
+jacobi_scale(r::Real, h::Halo{<:Real}, ::Type{T} = MM17Gamma1) where {T<:HostModel} = jacobi_scale(r, h.ρs, h.hp, T)
+jacobi_radius(r::Real, h::Halo{<:Real}, ::Type{T} = MM17Gamma1) where {T<:HostModel} = h.rs * jacobi_scale(r, h.ρs, h.hp, T)
 
 end # module FSL
