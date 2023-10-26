@@ -4,19 +4,24 @@ module Hosts
 include("./Halos.jl")
 
 import QuadGK: quadgk
+using JLD2,  Interpolations
+import Unitful: km, s, Gyr, K, Myr, NoUnits
+import UnitfulAstro: Mpc, Gpc, Msun
+import PhysicalConstants.CODATA2018: c_0, G as G_NEWTON
 
-import Main.Cosmojuly.BackgroundCosmo: BkgCosmology, planck18_bkg
+import Main.Cosmojuly.BackgroundCosmo: BkgCosmology, planck18_bkg, lookback_redshift, δt_s, z_to_a
 import Main.Cosmojuly.PowerSpectrum: Cosmology, planck18
 import Main.Cosmojuly.Halos: Halo, HaloProfile, nfwProfile, αβγProfile, halo_from_ρs_and_rs, m_halo, ρ_halo, μ_halo, coreProfile
 
-export ρ_HI, ρ_baryons_spherical, host_halo, m_baryons_spherical, μ_baryons_spherical
+export ρ_HI, ρ_H2, ρ_ISM, ρ_baryons, ρ_baryons_spherical, host_halo, m_baryons_spherical, μ_baryons_spherical
 export host_profile, ρ_dm, m_host_spherical, μ_host_spherical, ρ_host_spherical
 export HostModel, MM17Model, MM17Gamma1, MM17Gamma0, MM17GammaFree
+export _save_host, _load_host
 
 # Definition of the profiles
 function ρ_spherical_BG02(r::Real, z::Real; ρ0b::Real, r0::Real, q::Real, α::Real, rcut::Real) 
     rp = sqrt(r^2 + (z/q)^2)
-    return ρ0b/(1+rp/r0)^α * exp(-(rp/rcut)^2)
+    return ρ0b/((1+rp/r0)^α) * exp(-(rp/rcut)^2)
 end
 
 ρ_exponential_disc(r::Real, z::Real; σ0::Real, rd::Real, zd::Real) = σ0/(2.0*zd)*exp(-abs(z)/zd - r/rd)
@@ -33,6 +38,20 @@ abstract type DMOnlyMM17Model <: HostModel end
 abstract type DMOnlyMM17Gamma1 <: DMOnlyMM17Model end
 abstract type DMOnlyMM17Gamma0 <: DMOnlyMM17Model end
 abstract type DMOnlyMM17GammaFree <: DMOnlyMM17Model end
+
+name_model(::Type{MM17Gamma1}) = "MM17Gamma1"
+name_model(::Type{MM17Gamma0}) = "MM17Gamma0"
+name_model(::Type{MM17GammaFree}) = "MM17GammaFree"
+name_model(::Type{DMOnlyMM17Gamma0}) = "DMOnlyMM17Gamma0"
+name_model(::Type{T}) where {T<:HostModel} = name_model(T)
+
+export age_host
+
+""" age of the host in s """
+function age(z::Real = 0, ::Type{T} = MM17Gamma1, cosmo::BkgCosmology = planck18_bkg; kws...) where {T<:MM17Model} 
+    z_max = lookback_redshift((1e+4 * (Myr / s) |> NoUnits))
+    return δt_s(z_to_a(z_max), z_to_a(z), cosmo; kws...)
+end
 
 # we take the median value of the MCMC
 host_profile(::Type{MM17Gamma1})    = nfwProfile
@@ -55,13 +74,13 @@ host_profile(::Type{T} = MM17Gamma1) where {T<:HostModel} = host_profile(T)
 host_halo(::Type{T} = MM17Gamma1) where {T<:HostModel} = host_halo(T)
 ρ_dm(r::Real, ::Type{T} = MM17Gamma1) where {T <:HostModel} = ρ_halo(r, host_halo(T))
 
-ρ_HI(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = ρ_sech_disc(r, z, σ0=5.31e+13, rd=8.5e-5, rm=4.0e-3, zd=7.0e-3)
-ρ_H2(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = ρ_sech_disc(r, z, σ0=2.180e+15, rd=4.5e-5, rm=1.2e-2, zd=1.5e-3)
+ρ_HI(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = ρ_sech_disc(r, z, σ0=5.31e+13, zd=8.5e-5, rm=4.0e-3, rd=7.0e-3)
+ρ_H2(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = ρ_sech_disc(r, z, σ0=2.180e+15, zd=4.5e-5, rm=1.2e-2, rd=1.5e-3)
 ρ_bulge(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = ρ_spherical_BG02(r, z, ρ0b = 9.73e+19, r0 = 7.5e-5, q = 0.5, α = 1.8, rcut = 2.1e-3)
-ρ_thick_stellar_disc(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = ρ_exponential_disc(r, z, σ0=1.487e+14, rd =9.0e-4, zd=3.29e-3)
-ρ_thin_stellar_disc(r::Real, z::Real, ::Type{MM17Gamma1})    = ρ_exponential_disc(r, z, σ0=8.87e+14, rd=3.0e-4, zd=2.53e-3)
-ρ_thin_stellar_disc(r::Real, z::Real, ::Type{MM17Gamma0})    = ρ_exponential_disc(r, z, σ0=8.87e+14, rd=3.0e-4, zd=2.36e-3)
-ρ_thin_stellar_disc(r::Real, z::Real, ::Type{MM17GammaFree}) = ρ_exponential_disc(r, z, σ0=8.87e+14, rd=3.0e-4, zd=2.51e-3)
+ρ_thick_stellar_disc(r::Real, z::Real, ::Type{T}) where {T <: MM17Model} = ρ_exponential_disc(r, z, σ0=1.487e+14, zd =9.0e-4, rd=3.29e-3)
+ρ_thin_stellar_disc(r::Real, z::Real, ::Type{MM17Gamma1})    = ρ_exponential_disc(r, z, σ0=8.87e+14, zd=3.0e-4, rd=2.53e-3)
+ρ_thin_stellar_disc(r::Real, z::Real, ::Type{MM17Gamma0})    = ρ_exponential_disc(r, z, σ0=8.87e+14, zd=3.0e-4, rd=2.36e-3)
+ρ_thin_stellar_disc(r::Real, z::Real, ::Type{MM17GammaFree}) = ρ_exponential_disc(r, z, σ0=8.87e+14, zd=3.0e-4, rd=2.51e-3)
 ρ_thin_stellar_disc(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:MM17Model} = ρ_thin_stellar_disc(r, z, T)
 
 ρ_HI(r::Real, z::Real, ::Type{T}) where {T <: DMOnlyMM17Model}  = 0.0
@@ -70,12 +89,19 @@ host_halo(::Type{T} = MM17Gamma1) where {T<:HostModel} = host_halo(T)
 ρ_thick_stellar_disc(r::Real, z::Real, ::Type{T}) where {T <: DMOnlyMM17Model}  = 0.0
 ρ_thin_stellar_disc(r::Real, z::Real, ::Type{T}) where {T <: DMOnlyMM17Model}  = 0.0
 
-ρ_baryons(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = ρ_HI(r, z, T) + ρ_H2(r, z, T) + ρ_bulge(r, z, T) + ρ_thick_stellar_disc(r, z, T) + ρ_thin_stellar_disc(r, z, T)
 ρ_ISM(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = ρ_HI(r, z, T) + ρ_H2(r, z, T)
+ρ_baryons(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = ρ_ISM(r, z, T) + ρ_bulge(r, z, T) + ρ_thick_stellar_disc(r, z, T) + ρ_thin_stellar_disc(r, z, T)
+
+
+
+###########################
+## SPHERICISED QUANTITIES
+export circular_velocity, circular_period, number_circular_orbits
+
 
 function der_ρ_baryons_spherical(xp::Real, r::Real, ::Type{T}) where {T<:MM17Model}
     y = sqrt(1 - xp^2)
-    return xp/y * (ρ_baryons(r * xp, -y, T) + ρ_baryons(r * xp, y, T))
+    return xp^2/y * (ρ_baryons(r * xp, - r * y, T) + ρ_baryons(r * xp, r * y, T))/2.0
 end
 der_ρ_baryons_spherical(xp::Real, r::Real, ::Type{T}) where {T<:DMOnlyMM17Model} = 0
 
@@ -91,20 +117,115 @@ m_baryons_spherical(r::Real, ::Type{T}) where {T<:DMOnlyMM17Model} = 0.0
 m_host_spherical(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = m_baryons_spherical(r, T) + m_halo(r, host_halo(T))
 μ_host_spherical(x::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = μ_baryons_spherical(x, T) + μ_halo(x, host_profile(T))
 
-## Possibility to interpolate the model
-function _interpolate_host(::Type{T}) where {T<:HostModel}
-    """ change that to a save function """
 
+""" circular velocity in km/s for `r` in Mpc """
+circular_velocity(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = sqrt(G_NEWTON * m_host_spherical(r, T) * Msun / (r * Mpc)) / (km/s) |> NoUnits
+
+""" circular period in s for `r` in Mpc """
+circular_period(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = 2.0 * π * r * Mpc / circular_velocity(r, T) / km  |> NoUnits
+
+""" number or circular orbits with `r` in Mpc """
+number_circular_orbits(r::Real, z::Real = 0, ::Type{T} = MM17Gamma1, cosmo::BkgCosmology = planck18_bkg; kws...) where {T<:HostModel} = floor(Int, age(z, T, cosmo, kws...) / circular_period(r, T))
+
+###########################
+
+
+
+function _save_host(::Type{T}) where {T<:HostModel}
+    
     rs = host_halo(T).rs
-    log10_r_arr = range(log10(1e-5 * rs), log10(1e+5 * rs), 1000)
+    r_array = 10.0.^range(log10(1e-6 * rs), log10(1e+6 * rs), 1000)
 
-    log10ρ_host = interpolate((log10_r_arr,), log10.(ρ_host_spherical(10.0.^log10_r_arr, T)),  Gridded(Linear()))
-    log10ρ_baryons = interpolate((log10_r_arr,), log10.(ρ_baryons_spherical(10.0.^log10_r_arr, T)),  Gridded(Linear()))
-    log10m_host = interpolate((log10_r_arr,), log10.(m_host_spherical(10.0.^log10_r_arr, T)),  Gridded(Linear()))
-    log10m_baryons = interpolate((log10_r_arr,), log10.(m_baryons_spherical(10.0.^log10_r_arr, T)),  Gridded(Linear()))
+    # -------------------------------------------
+    # Checking if the file does not already exist
+    hash_value = hash(name_model(T))
+    filenames = readdir("../cache/hosts/")
 
-    ρ_host_spherical(r::Real) = 10.0^log10ρ_host(log10(r))
+    file = "host_" * string(hash_value, base=16) * ".jld2" 
+ 
+    if file in filenames
+        existing_data = jldopen("../cache/hosts/host_" * string(hash_value, base=16) * ".jld2")
+
+        if existing_data["r"] == r_array
+            @info "| file to save is already cached"
+            return nothing
+        end
+    end
+    # -------------------------------------------
+
+    ρ_host    =  ρ_host_spherical.(r_array, T)
+    ρ_baryons = ρ_baryons_spherical.(r_array, T)
+    m_host    = m_host_spherical.(r_array, T)
+    m_baryons = m_baryons_spherical.(r_array, T)
+    
+    jldsave("../cache/hosts/host_" * string(hash_value, base=16) * ".jld2"; 
+        r = r_array, ρ_host = ρ_host, ρ_baryons = ρ_baryons, m_host = m_host, m_baryons = m_baryons)
+
+    return true
 
 end
+
+
+## Possibility to interpolate the model
+function _load_host(::Type{T}) where {T<:HostModel}
+    """ change that to a save function """
+
+    hash_value = hash(name_model(T))
+    filenames = readdir("../cache/hosts/")
+
+    file = "host_" * string(hash_value, base=16) * ".jld2" 
+
+
+    if file in filenames
+
+        data = jldopen("../cache/hosts/" * file)
+        r_array = data["r"]
+        ρ_host = data["ρ_host"]
+        ρ_baryons = data["ρ_baryons"]
+        m_host = data["m_host"]
+        m_baryons = data["m_baryons"]
+
+    end
+
+    log10ρ_host = interpolate((log10.(r_array),), log10.(ρ_host),  Gridded(Linear()))
+    log10ρ_baryons = interpolate((log10.(r_array),), log10.(ρ_baryons),  Gridded(Linear()))
+    log10m_host = interpolate((log10.(r_array),), log10.(m_host),  Gridded(Linear()))
+    log10m_baryons = interpolate((log10.(r_array),), log10.(m_baryons),  Gridded(Linear()))
+
+    ρ_host_spherical(r::Real) = 10.0^log10ρ_host(log10(r))
+    ρ_baryons_spherical(r::Real) = 10.0^log10ρ_baryons(log10(r))
+    m_host_spherical(r::Real) = 10.0^log10m_host(log10(r))
+    m_baryons_spherical(r::Real) = 10.0^log10m_baryons(log10(r))
+
+    return ρ_host_spherical, ρ_baryons_spherical, m_host_spherical, m_baryons_spherical
+
+end
+
+
+#######################
+## STAR PROPERTIES
+
+export stellar_mass_function_C03, moments_C03
+
+""" result in pc^{-3} * log(Mstar)^{-1} from Chabrier 2003"""
+function stellar_mass_function_C03(m::Real)
+    
+    (m <= 1) && (return 0.158 * exp(-(log10(m) - log10(0.079))^2 / (2. * 0.69^2))) 
+    (0 < log10(m) && log10(m) <= 0.54) && (return 4.4e-2 *  m^(-4.37))
+    (0.54 < log10(m) && log10(m) <= 1.26) && (return 1.5e-2 * m^(-3.53))
+    (1.26 < log10(m) && log10(m) <= 1.80) && (return 2.5e-4 * m^(-2.11))
+
+    return 0
+end
+
+function moments_C03(n::Int)
+    return quadgk(lnm -> exp(lnm)^(n+1) * stellar_mass_function_C03(exp(lnm)), log(1e-5), log(10.0^1.8), rtol=1e-10)[1] 
+end 
+
+
+
+
+
+#######################
 
 end # module Hosts

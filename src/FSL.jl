@@ -13,7 +13,7 @@ import Main.Cosmojuly.Hosts: HostModel, MM17Model, MM17Gamma1, MM17Gamma0, MM17G
 
 export subhalo_mass_function_template
 export mass_function_merger_tree
-export jacobi_radius
+export jacobi_radius, jacobi_scale
 
 #############################################################
 # Defnitions of basic functions
@@ -73,15 +73,33 @@ median_concentration_SCP12(mΔ::Real, cosmo::Cosmology = planck18) = median_conc
 
 pdf_position(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = 4 * π  * r^2 * ρ_halo(r, host_halo(T)) / mΔ(host_halo(T))
 
-reduced_ρ_host(r::Real, ::Type{T}) where {T<:HostModel} = 4 * π * r^3 *  ρ_host_spherical(r, T) / 3.0 / m_host_spherical(r, T)
 
-function jacobi_scale(r::Real, ρs::Real, hp::HaloProfile, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
-    _ρ = reduced_ρ_host(r, T)
-    _to_zero(xt::Real) = xt^3/μ_halo(xt, hp) - ρs/ρ_host_spherical(r, T) * _ρ / (1.0 - _ρ)
-    return exp(Roots.find_zero(lnxt -> _to_zero(exp(lnxt)), (-5, +5), Bisection())) 
-end 
+@doc raw"""
+    jacobi_scale(r, ρs, hp, ρ_host, m_host)
 
-jacobi_scale(r::Real, h::Halo{<:Real}, ::Type{T} = MM17Gamma1) where {T<:HostModel} = jacobi_scale(r, h.ρs, h.hp, T)
-jacobi_radius(r::Real, h::Halo{<:Real}, ::Type{T} = MM17Gamma1) where {T<:HostModel} = h.rs * jacobi_scale(r, h.ρs, h.hp, T)
+Jacobi scale radius for a subhalo of scale density `ρs` (in Msol/Mpc^3) with a HaloProfile `hp`
+at a distance r from the host centre  such that the sphericised mass density of the host at r is `ρ_host` 
+and the sphericised enclosed mass inside the sphere of radius r is `m_host`.
+
+More precisely, returns `xt` solution to
+``\frac{xt^3}{\mu(xt)} - \frac{\rho_{\rm s}}{\rho_{\rm host}(r)} \frac{\hat \rho}{1-\hat \rho}``
+with `` reduced sperical host density being
+`` = \frac{4\pi}{3} r^3 \frac{\rho_{\rm host}(r)}{m_{\rm host}(r)}``
+"""
+function jacobi_scale(r::Real, ρs::Real, hp::HaloProfile, ρ_host::Real, m_host::Real)
+    reduced_ρ =  4 * π * r^3 *  ρ_host / 3.0 / m_host
+    to_zero(xt::Real) = xt^3/μ_halo(xt, hp) - ρs/ρ_host * reduced_ρ / (1.0 - reduced_ρ)
+    return exp(Roots.find_zero(lnxt -> to_zero(exp(lnxt)), (-5, +5), Bisection())) 
+end
+
+
+jacobi_scale(r::Real, ρs::Real, hp::HaloProfile, ρ_host::Function, m_host::Function) = jacobi_scale(r, ρs, hp, ρ_host(r), m_host(r))
+jacobi_scale(r::Real, ρs::Real, hp::HaloProfile, ::Type{T} = MM17Gamma1) where {T<:HostModel} = jacobi_scale(r, ρs, hp, r->ρ_host_spherical(r, T), r->m_host_spherical(r, T))
+jacobi_scale(r::Real, subhalo::Halo{<:Real}, ::Type{T} = MM17Gamma1) where {T<:HostModel} = jacobi_scale(r, subhalo.ρs, subhalo.hp, T)
+jacobi_scale(r::Real, subhalo::Halo{<:Real}, ρ_host::Real, m_host::Real) = jacobi_scale(r, subhalo.ρs, subhalo.hp,  ρ_host, m_host)
+jacobi_scale(r::Real, subhalo::Halo{<:Real}, ρ_host::Function, m_host::Function) = jacobi_scale(r, subhalo.ρs, subhalo.hp,  ρ_host(r), m_host(r))
+
+jacobi_radius(r::Real, subhalo::Halo{<:Real}, ::Type{T} = MM17Gamma1) where {T<:HostModel} = subhalo.rs * jacobi_scale(r, subhalo.ρs, subhalo.hp, T)
+
 
 end # module FSL

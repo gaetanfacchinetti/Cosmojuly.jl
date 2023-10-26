@@ -220,9 +220,12 @@ z_eq_mr(cosmo::BkgCosmology = planck18_bkg) = cosmo.z_eq_mr
 z_eq_Λm(cosmo::BkgCosmology = planck18_bkg) = cosmo.z_eq_Λm
 a_eq_mr(cosmo::BkgCosmology = planck18_bkg) = z_to_a(cosmo.z_eq_mr)
 a_eq_Λm(cosmo::BkgCosmology = planck18_bkg) = z_to_a(cosmo.z_eq_Λm)
-δt_s(a0::Real, a1::Real, cosmo::BkgCosmology = planck18_bkg; kws...) = QuadGK.quadgk(a -> 1.0 / hubble_evolution(a_to_z(a), cosmo) / a, a0, a1, rtol=1e-3; kws...)[1] / (hubble_constant(cosmo) * km / Mpc)
-universe_age(z::Real =0, cosmo::BkgCosmology = planck18_bkg; kws...) = δt_s(0, z_to_a(z), cosmo; kws...)
+δt_s(a0::Real, a1::Real, cosmo::BkgCosmology = planck18_bkg; kws...) = QuadGK.quadgk(a -> 1.0 / hubble_evolution(a_to_z(a), cosmo) / a, a0, a1, rtol=1e-3; kws...)[1] / (hubble_constant(cosmo) * km / Mpc) |> NoUnits
+""" age of the universe (s)"""
+universe_age(z::Real=0, cosmo::BkgCosmology = planck18_bkg; kws...) = δt_s(0, z_to_a(z), cosmo; kws...)
+""" lookback time of the Universe (s) """
 lookback_time(z::Real, cosmo::BkgCosmology = planck18_bkg; kws...) = δt_s(z_to_a(z), 1, cosmo; kws...)
+""" lookback redshift of the Universe for t in (s) """
 lookback_redshift(t::Real, cosmo::BkgCosmology = planck18_bkg; kws...) = exp(find_zero(lnz -> lookback_time(exp(lnz), cosmo; kws...)-t, (-5, 10), Bisection())) 
 #########################################################
 
