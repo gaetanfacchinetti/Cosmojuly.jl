@@ -25,6 +25,7 @@ function ρ_spherical_BG02(r::Real, z::Real; ρ0b::Real, r0::Real, q::Real, α::
 end
 
 ρ_exponential_disc(r::Real, z::Real; σ0::Real, rd::Real, zd::Real) = σ0/(2.0*zd)*exp(-abs(z)/zd - r/rd)
+σ_exponential_disc(r::Real; σ0::Real, rd::Real) = σ0 * exp(-r/rd)
 ρ_sech_disc(r::Real, z::Real; σ0::Real, rd::Real, rm::Real, zd::Real) = σ0/(4.0*zd)*exp(-rm/r - r/rd)*(sech(z/(2.0*zd)))^2
 
 abstract type HostModel end
@@ -83,15 +84,24 @@ host_halo(::Type{T} = MM17Gamma1) where {T<:HostModel} = host_halo(T)
 ρ_thin_stellar_disc(r::Real, z::Real, ::Type{MM17GammaFree}) = ρ_exponential_disc(r, z, σ0=8.87e+14, zd=3.0e-4, rd=2.51e-3)
 ρ_thin_stellar_disc(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:MM17Model} = ρ_thin_stellar_disc(r, z, T)
 
+σ_thick_stellar_disc(r::Real, ::Type{T}) where {T <: MM17Model} = σ_exponential_disc(r, σ0=1.487e+14, rd=3.29e-3)
+σ_thin_stellar_disc(r::Real, ::Type{MM17Gamma1})    = σ_exponential_disc(r, σ0=8.87e+14, rd=2.53e-3)
+σ_thin_stellar_disc(r::Real, ::Type{MM17Gamma0})    = σ_exponential_disc(r, σ0=8.87e+14, rd=2.36e-3)
+σ_thin_stellar_disc(r::Real, ::Type{MM17GammaFree}) = σ_exponential_disc(r, σ0=8.87e+14, rd=2.51e-3)
+σ_thin_stellar_disc(r::Real, ::Type{T} = MM17Gamma1) where {T<:MM17Model} = σ_thin_stellar_disc(r, T)
+
 ρ_HI(r::Real, z::Real, ::Type{T}) where {T <: DMOnlyMM17Model}  = 0.0
 ρ_H2(r::Real, z::Real, ::Type{T}) where {T <: DMOnlyMM17Model}  = 0.0
 ρ_bulge(r::Real, z::Real, ::Type{T}) where {T <: DMOnlyMM17Model}  = 0.0
 ρ_thick_stellar_disc(r::Real, z::Real, ::Type{T}) where {T <: DMOnlyMM17Model}  = 0.0
 ρ_thin_stellar_disc(r::Real, z::Real, ::Type{T}) where {T <: DMOnlyMM17Model}  = 0.0
+σ_thick_stellar_disc(r::Real, ::Type{T}) where {T <: DMOnlyMM17Model}  = 0.0
+σ_thin_stellar_disc(r::Real,  ::Type{T}) where {T <: DMOnlyMM17Model}  = 0.0
 
 ρ_ISM(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = ρ_HI(r, z, T) + ρ_H2(r, z, T)
-ρ_baryons(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = ρ_ISM(r, z, T) + ρ_bulge(r, z, T) + ρ_thick_stellar_disc(r, z, T) + ρ_thin_stellar_disc(r, z, T)
-
+ρ_stellar_disc(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = ρ_thick_stellar_disc(r, z, T) + ρ_thin_stellar_disc(r, z, T)
+ρ_baryons(r::Real, z::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = ρ_ISM(r, z, T) + ρ_bulge(r, z, T) + ρ_stellar_disc(r, z, T) 
+σ_stellar_disc(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = σ_thick_stellar_disc(r, T) + σ_thin_stellar_disc(r, T)
 
 
 ###########################
@@ -205,26 +215,31 @@ end
 #######################
 ## STAR PROPERTIES
 
-export stellar_mass_function_C03, moments_C03
+export stellar_mass_function_C03, moments_C03, b_max, number_stellar_encounter
 
 """ result in pc^{-3} * log(Mstar)^{-1} from Chabrier 2003"""
 function stellar_mass_function_C03(m::Real)
     
-    (m <= 1) && (return 0.158 * exp(-(log10(m) - log10(0.079))^2 / (2. * 0.69^2))) 
-    (0 < log10(m) && log10(m) <= 0.54) && (return 4.4e-2 *  m^(-4.37))
-    (0.54 < log10(m) && log10(m) <= 1.26) && (return 1.5e-2 * m^(-3.53))
-    (1.26 < log10(m) && log10(m) <= 1.80) && (return 2.5e-4 * m^(-2.11))
+    (m <= 1) && (return 0.158 * exp(-(log10(m) - log10(0.079))^2 / (2. * 0.69^2)) / m / 0.6046645064846679) 
+    (0 < log10(m) && log10(m) <= 0.54) && (return 4.4e-2 *  m^(-5.37) / 0.6046645064846679)
+    (0.54 < log10(m) && log10(m) <= 1.26) && (return 1.5e-2 * m^(-4.53) / 0.6046645064846679)
+    (1.26 < log10(m) && log10(m) <= 1.80) && (return 2.5e-4 * m^(-3.11) / 0.6046645064846679)
 
     return 0
 end
 
 function moments_C03(n::Int)
-    return quadgk(lnm -> exp(lnm)^(n+1) * stellar_mass_function_C03(exp(lnm)), log(1e-5), log(10.0^1.8), rtol=1e-10)[1] 
+    return quadgk(lnm -> exp(lnm)^(n+1) * stellar_mass_function_C03(exp(lnm)), log(1e-7), log(10.0^1.8), rtol=1e-10)[1] 
 end 
 
 
+function b_max(r::Real, ::Type{T}) where {T<:HostModel}
+    return moments_C03(1)^(1/3)/σ_stellar_disc(r, T) * quadgk(lnz -> exp(lnz) * ρ_stellar_disc(r, exp(lnz))^(2/3), log(1e-10), log(1e+0), rtol=1e-10)[1] 
+end
 
-
+function number_stellar_encounter(r::Real, ::Type{T}) where {T<:HostModel}
+    return floor(Int, σ_stellar_disc(r, T) / moments_C03(1) * π / 0.5 * b_max(r, T)^2)
+end
 
 #######################
 
