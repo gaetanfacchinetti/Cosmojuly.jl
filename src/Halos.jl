@@ -30,7 +30,7 @@ import PhysicalConstants.CODATA2018: c_0, G as G_NEWTON
 import Main.Cosmojuly.PowerSpectrum: Cosmology, planck18
 import Main.Cosmojuly.BackgroundCosmo: planck18_bkg
 
-export Halo, nfwProfile, αβγProfile, HaloProfile, coreProfile
+export Halo, nfwProfile, αβγProfile, HaloProfile, coreProfile, plummerProfile
 export halo_from_ρs_and_rs, halo_from_mΔ_and_cΔ
 export mΔ_from_ρs_and_rs, mΔ, rΔ_from_ρs_and_rs, rΔ, ρ_halo, μ_halo, m_halo
 
@@ -45,6 +45,8 @@ struct αβγProfile{T<:Real} <: HaloProfile{T}
     γ::T
 end
 
+
+
 # definition of length and iterator on our struct
 # allows to use f.(x, y) where y is of type HaloProfile
 Base.length(::HaloProfile) = 1
@@ -57,6 +59,7 @@ Base.iterate(::HaloProfile, state::Nothing) = nothing
 ## definition of densities and mass profiles
 const nfwProfile::αβγProfile = αβγProfile(1, 3, 1)
 const coreProfile::αβγProfile = αβγProfile(1, 3, 0)
+const plummerProfile::αβγProfile = αβγProfile(2, 5, 0)
 ρ_halo(x::Real, p::αβγProfile = nfwProfile) = x^(-p.γ) * (1+x^p.α)^(-(p.β - p.γ)/p.α)
 μ_halo(x::Real, p::αβγProfile = nfwProfile) = HypergeometricFunctions._₂F₁((3 - p.γ)/p.α, (p.β - p.γ)/p.α, (3 + p.α - p.γ)/p.α, -x^p.α) * x^(3-p.γ) / (3-p.γ)
 

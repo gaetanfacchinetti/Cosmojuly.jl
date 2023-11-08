@@ -6,6 +6,7 @@ include("./PowerSpectrum.jl")
 include("./MassFunction.jl")
 include("./Halos.jl")
 include("./Hosts.jl")
+include("./StellarEncounters.jl")
 include("./FSL.jl")
 
 using .BackgroundCosmo
@@ -14,6 +15,7 @@ using .PowerSpectrum
 using .MassFunction
 using .Halos
 using .Hosts
+using .StellarEncounters
 using .FSLModel
 
 end 

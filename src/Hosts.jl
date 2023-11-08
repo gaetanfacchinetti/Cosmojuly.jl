@@ -14,7 +14,7 @@ import Main.Cosmojuly.PowerSpectrum: Cosmology, planck18
 import Main.Cosmojuly.Halos: Halo, HaloProfile, nfwProfile, αβγProfile, halo_from_ρs_and_rs, m_halo, ρ_halo, μ_halo, coreProfile
 
 export ρ_HI, ρ_H2, ρ_ISM, ρ_baryons, ρ_baryons_spherical, host_halo, m_baryons_spherical, μ_baryons_spherical
-export host_profile, ρ_dm, m_host_spherical, μ_host_spherical, ρ_host_spherical
+export host_profile, ρ_dm, m_host_spherical, μ_host_spherical, ρ_host_spherical, tidal_radius
 export HostModel, MM17Model, MM17Gamma1, MM17Gamma0, MM17GammaFree
 export _save_host, _load_host
 
@@ -45,6 +45,9 @@ name_model(::Type{MM17Gamma0}) = "MM17Gamma0"
 name_model(::Type{MM17GammaFree}) = "MM17GammaFree"
 name_model(::Type{DMOnlyMM17Gamma0}) = "DMOnlyMM17Gamma0"
 name_model(::Type{T}) where {T<:HostModel} = name_model(T)
+
+tidal_radius(::Type{T}) where {T<:MM17Model} = 0.5 # in Mpc
+tidal_radius(::Type{T}) where {T<:DMOnlyMM17Model} = 0.5 # in Mpc
 
 export age_host
 
@@ -106,7 +109,7 @@ host_halo(::Type{T} = MM17Gamma1) where {T<:HostModel} = host_halo(T)
 
 ###########################
 ## SPHERICISED QUANTITIES
-export circular_velocity, circular_period, number_circular_orbits
+export circular_velocity, circular_period, number_circular_orbits, velocity_dispersion_spherical
 
 
 function der_ρ_baryons_spherical(xp::Real, r::Real, ::Type{T}) where {T<:MM17Model}
@@ -136,6 +139,9 @@ circular_period(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = 2.0 * π
 
 """ number or circular orbits with `r` in Mpc """
 number_circular_orbits(r::Real, z::Real = 0, ::Type{T} = MM17Gamma1, cosmo::BkgCosmology = planck18_bkg; kws...) where {T<:HostModel} = floor(Int, age(z, T, cosmo, kws...) / circular_period(r, T))
+
+""" Jeans dispersion (km / s)"""
+velocity_dispersion_spherical(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = sqrt(G_NEWTON * Msun / Mpc / ρ_dm(r, T) *  quadgk(rp -> ρ_dm(rp, T) * m_host_spherical(rp, T)/rp^2, r, tidal_radius(T), rtol=1e-3)[1]) / (km / s)  |> NoUnits 
 
 ###########################
 
@@ -212,34 +218,6 @@ function _load_host(::Type{T}) where {T<:HostModel}
 end
 
 
-#######################
-## STAR PROPERTIES
-
-export stellar_mass_function_C03, moments_C03, b_max, number_stellar_encounter
-
-""" result in pc^{-3} * log(Mstar)^{-1} from Chabrier 2003"""
-function stellar_mass_function_C03(m::Real)
-    
-    (m <= 1) && (return 0.158 * exp(-(log10(m) - log10(0.079))^2 / (2. * 0.69^2)) / m / 0.6046645064846679) 
-    (0 < log10(m) && log10(m) <= 0.54) && (return 4.4e-2 *  m^(-5.37) / 0.6046645064846679)
-    (0.54 < log10(m) && log10(m) <= 1.26) && (return 1.5e-2 * m^(-4.53) / 0.6046645064846679)
-    (1.26 < log10(m) && log10(m) <= 1.80) && (return 2.5e-4 * m^(-3.11) / 0.6046645064846679)
-
-    return 0
-end
-
-function moments_C03(n::Int)
-    return quadgk(lnm -> exp(lnm)^(n+1) * stellar_mass_function_C03(exp(lnm)), log(1e-7), log(10.0^1.8), rtol=1e-10)[1] 
-end 
-
-
-function b_max(r::Real, ::Type{T}) where {T<:HostModel}
-    return moments_C03(1)^(1/3)/σ_stellar_disc(r, T) * quadgk(lnz -> exp(lnz) * ρ_stellar_disc(r, exp(lnz))^(2/3), log(1e-10), log(1e+0), rtol=1e-10)[1] 
-end
-
-function number_stellar_encounter(r::Real, ::Type{T}) where {T<:HostModel}
-    return floor(Int, σ_stellar_disc(r, T) / moments_C03(1) * π / 0.5 * b_max(r, T)^2)
-end
 
 #######################
 
