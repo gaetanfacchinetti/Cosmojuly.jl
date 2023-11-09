@@ -4,6 +4,7 @@ module StellarEncounters
 include("./Halos.jl")
 include("./Hosts.jl")
 
+
 import QuadGK: quadgk
 using JLD2,  Interpolations, Roots, SpecialFunctions
 import Unitful: km, s, Gyr, K, Myr, NoUnits
@@ -13,13 +14,14 @@ import PhysicalConstants.CODATA2018: c_0, G as G_NEWTON
 import Main.Cosmojuly.BackgroundCosmo: BkgCosmology, planck18_bkg, lookback_redshift, δt_s, z_to_a
 import Main.Cosmojuly.PowerSpectrum: Cosmology, planck18
 import Main.Cosmojuly.Halos: Halo, HaloProfile, nfwProfile, αβγProfile, halo_from_ρs_and_rs, m_halo, ρ_halo, μ_halo, coreProfile, plummerProfile
-import Main.Cosmojuly.Hosts: ρ_stellar_disc, HostModel, σ_stellar_disc, circular_velocity, velocity_dispersion_spherical, MM17Gamma1, name_model
+import Main.Cosmojuly.Hosts: ρ_stellar_disc, HostModel, σ_stellar_disc, circular_velocity, velocity_dispersion_spherical, MM17Gamma1, name_model, ρ_host_spherical, m_host_spherical
 
 #######################
 ## STAR PROPERTIES
 
 export stellar_mass_function_C03, moments_C03, b_max, number_stellar_encounter, pdf_relative_speed, pdf_η, pseudo_mass, _pseudo_mass
 export w_parallel, w_perp, cdf_η, inverse_cdf_η, average_relative_speed, average_inverse_relative_speed
+export jacobi_radius, jacobi_scale
 
 """ result in (Msol^{-1}) from Chabrier 2003 """
 function stellar_mass_function_C03(m::Real)
@@ -85,10 +87,15 @@ end
 
 export draw_velocity_kick
 
+w_parallel(rps::Real, θb::Real, bs::Real, xt::Real, shp::HaloProfile = nfwProfile) = (pseudo_mass(bs, xt, shp) * sin(θb) - (rps * bs + bs^2 * sin(θb))/(rps^2 + bs^2 + 2*rps*bs*sin(θb)) )
+w_perp(rps::Real, θb::Real, bs::Real, xt::Real, shp::HaloProfile = nfwProfile) = (pseudo_mass(bs, xt, shp) * cos(θb) - (bs^2 * cos(θb))/(rps^2 + bs^2 + 2*rps*bs*sin(θb)) )
+
+
 function draw_velocity_kick(rp::Real, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
     
-    n = number_stellar_encounter(r, T)
-    b_max = b_max(r, T)
+    # initialisation for a given value of r
+    n     = number_stellar_encounter(r, T)
+    b_m   = b_max(r, T)
     inv_η = _load_inverse_cdf_η(r, T)
 
     rt = jacobi_radius(r, subhalo, T)
@@ -98,20 +105,43 @@ function draw_velocity_kick(rp::Real, subhalo::Halo, r::Real, ::Type{T} = MM17Ga
 
     # Randomly sampling the distributions
     θb = 2.0 * π * rand(n)
-    β = rand(n)
+    β  = rand(n)
+    η  = inv_η.(rand(n))
 
-    b = b_max * β # assuming b_min = 0 here
-
-    η          = inv_η.(rand(n))
-    w_parallel = w_parallel.(rp, θb, b / rs, rt / rs)
-    w_perp     = w_perp.(rp, θb, b / rs, rt / rs)
-
-    v_parallel = w_parallel .* η ./ b * b_max 
-    v_perp = w_perp .* η ./ b * b_max 
-
+    v_parallel = w_parallel.(rp / rs, θb, b_m * β / rs, rt / rs, subhalo.hp) .* η ./ β # assuming b_min = 0 here
+    v_perp     = w_perp.(rp / rs, θb, b_m * β / rs, rt / rs, subhalo.hp) .* η ./ β     # assuming b_min = 0 here
+    
     return v_parallel, v_perp
 end
 
+function draw_velocity_kick(rp::Vector{<:Real}, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
+
+    # initialisation for a given value of r
+    n     = number_stellar_encounter(r, T)
+    b_m   = b_max(r, T)
+    inv_η = _load_inverse_cdf_η(r, T)
+
+    rt = jacobi_radius(r, subhalo, T)
+    rs = subhalo.rs
+
+    all(rp .> rt) && return false
+
+    # Randomly sampling the distributions
+    θb = 2.0 * π * rand(n)
+    β  = rand(n)
+    η  = inv_η.(rand(n))
+
+    v_parallel = Matrix{Float64}(undef, length(rp), n)
+    v_perp     = Matrix{Float64}(undef, length(rp), n)
+
+    for ir in 1:length(rp)
+        v_parallel[ir,:] .= w_parallel.(rp[ir] / rs, θb, b_m * β / rs, rt / rs, subhalo.hp) .* η ./ β  # assuming b_min = 0 here
+        v_perp[ir, :]    .= w_perp.(rp[ir] / rs, θb, b_m * β / rs, rt / rs, subhalo.hp) .* η ./ β     # assuming b_min = 0 here
+    end
+
+    return v_parallel, v_perp
+
+end
 
 export _save_inverse_cdf_η, _load_inverse_cdf_η
 
@@ -149,17 +179,13 @@ function _load_inverse_cdf_η(r::Real, ::Type{T}) where {T<:HostModel}
 
     hash_value = hash((r, name_model(T)))
     filenames = readdir("../cache/hosts/")
-
     file = "cdf_eta_" * string(hash_value, base=16) * ".jld2" 
-
-
-    if file in filenames
-        data = jldopen("../cache/hosts/" * file)
-        rnd_array = data["rnd"]
-        inv_cdf = data["inverse_cdf_eta"]
-    end
-
+    !(file in filenames) && _save_inverse_cdf_η(r, T)
     
+    data = jldopen("../cache/hosts/" * file)
+    rnd_array = data["rnd"]
+    inv_cdf = data["inverse_cdf_eta"]
+        
     log10inv_cdf = interpolate((log10.(rnd_array),), log10.(inv_cdf),  Gridded(Linear()))
     inv_cdf_η(rnd::Real) = 10.0^log10inv_cdf(log10(rnd)) 
 
@@ -192,8 +218,35 @@ _pseudo_mass(bs::Real, xt::Real, shp::HaloProfile = nfwProfile) = 1.0 - quadgk(l
 pseudo_mass(b::Real, rt::Real, sh::Halo) = pseudo_mass(b/sh.rs, rt/sh.rs, sh.hp)
 
 
-w_parallel(rps::Real, θb::Real, bs::Real, xt::Real, shp::HaloProfile = nfwProfile) = (pseudo_mass(bs, xt, shp) * sin(θb) - (rps * bs + bs^2 * sin(θb))/(rps^2 + bs^2 + 2*rps*bs*sin(θb)) )
-w_perp(rps::Real, θb::Real, bs::Real, xt::Real, shp::HaloProfile = nfwProfile) = (pseudo_mass(bs, xt, shp) * cos(θb) - (bs^2 * cos(θb))/(rps^2 + bs^2 + 2*rps*bs*sin(θb)) )
+
+
+@doc raw"""
+    jacobi_scale(r, ρs, hp, ρ_host, m_host)
+
+Jacobi scale radius for a subhalo of scale density `ρs` (in Msol/Mpc^3) with a HaloProfile `hp`
+at a distance r from the host centre  such that the sphericised mass density of the host at r is `ρ_host` 
+and the sphericised enclosed mass inside the sphere of radius r is `m_host`.
+
+More precisely, returns `xt` solution to
+``\frac{xt^3}{\mu(xt)} - \frac{\rho_{\rm s}}{\rho_{\rm host}(r)} \frac{\hat \rho}{1-\hat \rho}``
+with `` reduced sperical host density being
+`` = \frac{4\pi}{3} r^3 \frac{\rho_{\rm host}(r)}{m_{\rm host}(r)}``
+"""
+function jacobi_scale(r::Real, ρs::Real, hp::HaloProfile, ρ_host::Real, m_host::Real)
+    reduced_ρ =  4 * π * r^3 *  ρ_host / 3.0 / m_host
+    to_zero(xt::Real) = xt^3/μ_halo(xt, hp) - ρs/ρ_host * reduced_ρ / (1.0 - reduced_ρ)
+    return exp(Roots.find_zero(lnxt -> to_zero(exp(lnxt)), (-5, +5), Bisection())) 
+end
+
+
+jacobi_scale(r::Real, ρs::Real, hp::HaloProfile, ρ_host::Function, m_host::Function) = jacobi_scale(r, ρs, hp, ρ_host(r), m_host(r))
+jacobi_scale(r::Real, ρs::Real, hp::HaloProfile, ::Type{T} = MM17Gamma1) where {T<:HostModel} = jacobi_scale(r, ρs, hp, r->ρ_host_spherical(r, T), r->m_host_spherical(r, T))
+jacobi_scale(r::Real, subhalo::Halo{<:Real}, ::Type{T} = MM17Gamma1) where {T<:HostModel} = jacobi_scale(r, subhalo.ρs, subhalo.hp, T)
+jacobi_scale(r::Real, subhalo::Halo{<:Real}, ρ_host::Real, m_host::Real) = jacobi_scale(r, subhalo.ρs, subhalo.hp,  ρ_host, m_host)
+jacobi_scale(r::Real, subhalo::Halo{<:Real}, ρ_host::Function, m_host::Function) = jacobi_scale(r, subhalo.ρs, subhalo.hp,  ρ_host(r), m_host(r))
+
+jacobi_radius(r::Real, subhalo::Halo{<:Real}, ::Type{T} = MM17Gamma1) where {T<:HostModel} = subhalo.rs * jacobi_scale(r, subhalo.ρs, subhalo.hp, T)
+
 
 #######################
 
