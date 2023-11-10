@@ -33,6 +33,7 @@ import Main.Cosmojuly.BackgroundCosmo: planck18_bkg
 export Halo, nfwProfile, αβγProfile, HaloProfile, coreProfile, plummerProfile
 export halo_from_ρs_and_rs, halo_from_mΔ_and_cΔ
 export mΔ_from_ρs_and_rs, mΔ, rΔ_from_ρs_and_rs, rΔ, ρ_halo, μ_halo, m_halo
+export velocity_dispersion
 
 abstract type HaloProfile{T<:Real} end
 
@@ -108,6 +109,8 @@ rΔ(h::Halo{<:Real}, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) = rΔ_fr
 
 ρs(h::Halo) = h.ρs * ρ_0
 rs(h::Halo) = h.rs * r_0
+
+velocity_dispersion(r::Real, rt::Real, h::Halo) = sqrt(G_NEWTON * Msun / Mpc / ρ_halo(r, h) *  quadgk(rp -> ρ_halo(rp, h) * m_halo(rp, h)/rp^2, r, rt, rtol=1e-3)[1]) / (km / s)  |> NoUnits 
 
 
 

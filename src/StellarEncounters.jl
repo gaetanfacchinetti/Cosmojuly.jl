@@ -13,7 +13,7 @@ import PhysicalConstants.CODATA2018: c_0, G as G_NEWTON
 
 import Main.Cosmojuly.BackgroundCosmo: BkgCosmology, planck18_bkg, lookback_redshift, δt_s, z_to_a
 import Main.Cosmojuly.PowerSpectrum: Cosmology, planck18
-import Main.Cosmojuly.Halos: Halo, HaloProfile, nfwProfile, αβγProfile, halo_from_ρs_and_rs, m_halo, ρ_halo, μ_halo, coreProfile, plummerProfile
+import Main.Cosmojuly.Halos: Halo, HaloProfile, nfwProfile, αβγProfile, halo_from_ρs_and_rs, m_halo, ρ_halo, μ_halo, coreProfile, plummerProfile, velocity_dispersion
 import Main.Cosmojuly.Hosts: ρ_stellar_disc, HostModel, σ_stellar_disc, circular_velocity, velocity_dispersion_spherical, MM17Gamma1, name_model, ρ_host_spherical, m_host_spherical
 
 #######################
@@ -87,8 +87,19 @@ end
 
 export draw_velocity_kick
 
-w_parallel(rps::Real, θb::Real, bs::Real, xt::Real, shp::HaloProfile = nfwProfile) = (pseudo_mass(bs, xt, shp) * sin(θb) - (rps * bs + bs^2 * sin(θb))/(rps^2 + bs^2 + 2*rps*bs*sin(θb)) )
-w_perp(rps::Real, θb::Real, bs::Real, xt::Real, shp::HaloProfile = nfwProfile) = (pseudo_mass(bs, xt, shp) * cos(θb) - (bs^2 * cos(θb))/(rps^2 + bs^2 + 2*rps*bs*sin(θb)) )
+""" bs = b / rs """
+w_parallel(xp::Real, θb::Real, bs::Real, xt::Real, shp::HaloProfile = nfwProfile) = (pseudo_mass(bs, xt, shp) * sin(θb) - (xp * bs + bs^2 * sin(θb))/(xp^2 + bs^2 + 2*xp*bs*sin(θb)) )
+w_perp(xp::Real, θb::Real, bs::Real, xt::Real, shp::HaloProfile = nfwProfile) = (pseudo_mass(bs, xt, shp) * cos(θb) - (bs^2 * cos(θb))/(xp^2 + bs^2 + 2*xp*bs*sin(θb)) )
+
+function w(xp::Real, θb::Real, bs::Real, xt::Real, shp::HaloProfile = nfwProfile)
+    
+    sθb   = sin(θb)
+    cθb   = cos(θb)
+    denom = (xp^2 + bs^2 + 2*xp*bs*sθb)
+    pm    = pseudo_mass(bs, xt, shp)
+  
+    (pm * sθb - (xp * bs + bs^2 * sθb)/denom), (pm * cθb - (bs^2 * cθb)/denom) 
+end
 
 
 function draw_velocity_kick(rp::Real, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
@@ -114,34 +125,79 @@ function draw_velocity_kick(rp::Real, subhalo::Halo, r::Real, ::Type{T} = MM17Ga
     return v_parallel, v_perp
 end
 
-function draw_velocity_kick(rp::Vector{<:Real}, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
+""" nmem maximal number of iteration for the memory"""
+function draw_velocity_kick(xp::Vector{<:Real}, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1; nrep::Int = 1, nmem::Int = 10000) where {T<:HostModel} 
 
     # initialisation for a given value of r
-    n     = number_stellar_encounter(r, T)
-    b_m   = b_max(r, T)
-    inv_η = _load_inverse_cdf_η(r, T)
-
-    rt = jacobi_radius(r, subhalo, T)
     rs = subhalo.rs
+    nstars = number_stellar_encounter(r, T)
+    b_ms    = b_max(r, T) / rs
+    inv_η  = _load_inverse_cdf_η(r, T)
+    xt     = jacobi_radius(r, subhalo, T) / rs
 
-    all(rp .> rt) && return false
+    all(xp .> xt) && return false
 
-    # Randomly sampling the distributions
-    θb = 2.0 * π * rand(n)
-    β  = rand(n)
-    η  = inv_η.(rand(n))
+    nxp = length(xp) # size of the point vectors we want to look at
+    nmem  = (nmem ÷ nstars) * nstars # we want the memory maximal number to be a multiple of nstar
+    nturn = 1      # number of iteration we must do to not overload the memory
+    ndraw = nstars # number of draw at every iteraction according to the memory requirement
+    
 
-    v_parallel = Matrix{Float64}(undef, length(rp), n)
-    v_perp     = Matrix{Float64}(undef, length(rp), n)
+    if nstars*nrep > nmem
+        nturn = (nstars*nrep)÷nmem + 1
+        ndraw = nmem
+    end
 
-    for ir in 1:length(rp)
-        v_parallel[ir,:] .= w_parallel.(rp[ir] / rs, θb, b_m * β / rs, rt / rs, subhalo.hp) .* η ./ β  # assuming b_min = 0 here
-        v_perp[ir, :]    .= w_perp.(rp[ir] / rs, θb, b_m * β / rs, rt / rs, subhalo.hp) .* η ./ β     # assuming b_min = 0 here
+    v_parallel = Matrix{Float64}(undef, nxp, nrep)
+    v_perp     = Matrix{Float64}(undef, nxp, nrep)
+
+    irep = 1
+
+    @info "nturn" nturn
+
+    for it in 1:nturn
+
+        # at the last step we only take the reminder number of draws necessary
+        (it == nturn) && (ndraw = (nstars*nrep) % nmem)
+
+        nchunks = (ndraw÷nstars)
+
+        # randomly sampling the distributions
+        θb = 2.0 * π * rand(ndraw)'
+        β  = rand(ndraw)'
+        η  = inv_η.(rand(ndraw))'
+
+        # assuming b_min = 0 here
+
+        sθb   = sin.(θb)
+        y     = xp ./ (b_ms .* β) 
+        denom = @. y^2 + 1 + 2 * y * sθb
+        pm    = pseudo_mass.(b_ms * β, xt, subhalo.hp)
+
+        _v_parallel = @. (pm * sθb - (y + sθb)./denom) * η / β
+        _v_perp     = @. (pm  -  1/denom) * cos(θb) * η / β
+
+
+        # summing all the contributions
+        for j in 1:nchunks
+            v_parallel[:, irep] = sum(_v_parallel[:, (j-1)*nstars+1:j*nstars], dims = 2)'
+            v_perp[:, irep]     = sum(_v_perp[:, (j-1)*nstars+1:j*nstars], dims = 2)'      
+            irep = irep + 1  
+        end
+    
     end
 
     return v_parallel, v_perp
-
 end
+
+# ongoing work
+function pdf_dE(dE::Real, r::Real, dv::Vector{<:Real}, subhalo::Halo, ::Type{T}) where {T<:HostModel}
+    rt = jacobi_radius(r * subhalo.rs, subhalo, T)
+    sigma = velocity_dispersion(r, rt, subhalo)
+    pref = 1.0/sqrt( 2.0 * π * sigma)
+    res = sum(@. 1/dv * exp((dE - dv^2/2.0)^2/2.0/sigma^2/dv^2))
+end
+
 
 export _save_inverse_cdf_η, _load_inverse_cdf_η
 
@@ -152,7 +208,7 @@ function _save_inverse_cdf_η(r::Real, ::Type{T}) where {T<:HostModel}
     mstar_avg = moments_C03(1)
     v_avg     = 1.0/average_inverse_relative_speed(σ, vstar)
 
-    rnd_array = 10.0.^range(-8, -0.000001, 500)
+    rnd_array = 10.0.^range(-8, -1e-12, 1000)
 
     # -------------------------------------------
     # Checking if the file does not already exist
@@ -187,7 +243,15 @@ function _load_inverse_cdf_η(r::Real, ::Type{T}) where {T<:HostModel}
     inv_cdf = data["inverse_cdf_eta"]
         
     log10inv_cdf = interpolate((log10.(rnd_array),), log10.(inv_cdf),  Gridded(Linear()))
-    inv_cdf_η(rnd::Real) = 10.0^log10inv_cdf(log10(rnd)) 
+   
+    function inv_cdf_η(rnd::Real) 
+        try
+            return 10.0^log10inv_cdf(log10(rnd)) 
+        catch e
+            println(rnd)
+            return false
+        end
+    end
 
     return inv_cdf_η
 
