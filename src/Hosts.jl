@@ -137,6 +137,8 @@ circular_velocity(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = sqrt(G
 """ circular period in s for `r` in Mpc """
 circular_period(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = 2.0 * π * r * Mpc / circular_velocity(r, T) / km  |> NoUnits
 
+export number_circular_orbits
+
 """ number or circular orbits with `r` in Mpc """
 number_circular_orbits(r::Real, z::Real = 0, ::Type{T} = MM17Gamma1, cosmo::BkgCosmology = planck18_bkg; kws...) where {T<:HostModel} = floor(Int, age(z, T, cosmo, kws...) / circular_period(r, T))
 

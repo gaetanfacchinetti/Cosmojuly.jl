@@ -43,7 +43,7 @@ function b_max(r::Real, ::Type{T}) where {T<:HostModel}
 end
 
 function number_stellar_encounter(r::Real, ::Type{T}) where {T<:HostModel}
-    return floor(Int, σ_stellar_disc(r, T) / moments_C03(1) * π / 0.5 * b_max(r, T)^2)
+    return floor(Int, σ_stellar_disc(r, T) / moments_C03(1) * π / 1 * b_max(r, T)^2)
 end
 
 pdf_relative_speed(v::Real, σ::Real, vstar::Real) = (vstar^2 + v^2)/(2.0*σ^2) > 1e+2 ? 0.0 : sqrt(2.0/π) * v / (σ * vstar) * sinh(v * vstar / σ^2) *exp(-(vstar^2 + v^2)/(2.0*σ^2))
@@ -116,7 +116,7 @@ function draw_velocity_kick(rp::Real, subhalo::Halo, r::Real, ::Type{T} = MM17Ga
 
     # Randomly sampling the distributions
     θb = 2.0 * π * rand(n)
-    β  = rand(n)
+    β  = sqrt.(rand(n))
     η  = inv_η.(rand(n))
 
     v_parallel = w_parallel.(rp / rs, θb, b_m * β / rs, rt / rs, subhalo.hp) .* η ./ β # assuming b_min = 0 here
@@ -124,6 +124,31 @@ function draw_velocity_kick(rp::Real, subhalo::Halo, r::Real, ::Type{T} = MM17Ga
     
     return v_parallel, v_perp
 end
+
+
+export draw_parameter_B
+
+draw_parameter_B(r::Real, ::Type{T} = MM17Gamma1; nstars::Int = number_stellar_encounter(r, T)) where {T<:HostModel}  = draw_parameter_B(r, velocity_dispersion_spherical(r, T), circular_velocity(r, T), T)
+
+function draw_parameter_B(r::Real, σ::Real, vstar::Real, ::Type{T} = MM17Gamma1; nstars::Int = number_stellar_encounter(r, T)) where {T<:HostModel} 
+    
+    # initialisation for a given value of r
+    b_m   = b_max(r, T)
+    inv_η = _load_inverse_cdf_η(r, T)
+    mstar_avg = moments_C03(1)
+    v_avg     = 1.0/average_inverse_relative_speed(σ, vstar)
+
+    println("average velocity = ", v_avg, " km/s | mstat_avg = ", mstar_avg)
+
+    # Randomly sampling the distributions
+    pref = 2*G_NEWTON * (mstar_avg * Msun) / (v_avg * (km / s)) / (b_m^2 * Mpc^2) * s |> NoUnits 
+
+    return pref * (inv_η.(rand(nstars)) ./ rand(nstars))
+end
+
+
+
+
 
 """ nmem maximal number of iteration for the memory"""
 function draw_velocity_kick(xp::Vector{<:Real}, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1; nrep::Int = 1, nmem::Int = 10000) where {T<:HostModel} 
@@ -164,7 +189,7 @@ function draw_velocity_kick(xp::Vector{<:Real}, subhalo::Halo, r::Real, ::Type{T
 
         # randomly sampling the distributions
         θb = 2.0 * π * rand(ndraw)'
-        β  = rand(ndraw)'
+        β  = sqrt.(rand(ndraw))'
         η  = inv_η.(rand(ndraw))'
 
         # assuming b_min = 0 here
@@ -189,6 +214,8 @@ function draw_velocity_kick(xp::Vector{<:Real}, subhalo::Halo, r::Real, ::Type{T
 
     return v_parallel, v_perp
 end
+
+
 
 # ongoing work
 function pdf_dE(dE::Real, r::Real, dv::Vector{<:Real}, subhalo::Halo, ::Type{T}) where {T<:HostModel}
