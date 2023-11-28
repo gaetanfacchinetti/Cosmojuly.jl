@@ -199,7 +199,7 @@ function draw_velocity_kick(xp::Vector{<:Real}, subhalo::Halo, r::Real, ::Type{T
         denom = @. y^2 + 1 + 2 * y * sθb
         pm    = pseudo_mass.(b_ms * β, xt, subhalo.hp)
 
-        _v_parallel = @. (pm * sθb - (y + sθb)./denom) * η / β
+        _v_parallel = @. (pm * sθb - (y + sθb)/denom) * η / β
         _v_perp     = @. (pm  -  1/denom) * cos(θb) * η / β
 
 

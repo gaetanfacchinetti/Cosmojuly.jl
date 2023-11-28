@@ -245,7 +245,7 @@ lookback_redshift(t::Real, cosmo::BkgCosmology = planck18_bkg; kws...) = exp(fin
 """
 function growth_factor(z::Real, cosmo::BkgCosmology = planck18_bkg, kws...)::Real
     norm = 2.5 * cosmo.Ω_m0 * sqrt(cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_Λ0)
-    return norm * QuadGK.quadgk(a -> (cosmo.Ω_m0 * a^(-1) + cosmo.Ω_Λ0 * a^2)^(-3/2), 0, z_to_a(z), rtol=1e-3; kws...)[1]
+    return norm * QuadGK.quadgk(a -> (cosmo.Ω_m0 * a^(-1) + cosmo.Ω_Λ0 * a^2)^(-3/2), 0, z_to_a(z), rtol=1e-6; kws...)[1]
 end
 
 """

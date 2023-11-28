@@ -33,7 +33,7 @@ import Main.Cosmojuly.BackgroundCosmo: planck18_bkg
 export Halo, nfwProfile, αβγProfile, HaloProfile, coreProfile, plummerProfile
 export halo_from_ρs_and_rs, halo_from_mΔ_and_cΔ
 export mΔ_from_ρs_and_rs, mΔ, rΔ_from_ρs_and_rs, rΔ, ρ_halo, μ_halo, m_halo
-export velocity_dispersion
+export velocity_dispersion, gravitational_potential, escape_velocity
 
 abstract type HaloProfile{T<:Real} end
 
@@ -45,7 +45,6 @@ struct αβγProfile{T<:Real} <: HaloProfile{T}
     β::T
     γ::T
 end
-
 
 
 # definition of length and iterator on our struct
@@ -61,9 +60,14 @@ Base.iterate(::HaloProfile, state::Nothing) = nothing
 const nfwProfile::αβγProfile = αβγProfile(1, 3, 1)
 const coreProfile::αβγProfile = αβγProfile(1, 3, 0)
 const plummerProfile::αβγProfile = αβγProfile(2, 5, 0)
+
 ρ_halo(x::Real, p::αβγProfile = nfwProfile) = x^(-p.γ) * (1+x^p.α)^(-(p.β - p.γ)/p.α)
 μ_halo(x::Real, p::αβγProfile = nfwProfile) = HypergeometricFunctions._₂F₁((3 - p.γ)/p.α, (p.β - p.γ)/p.α, (3 + p.α - p.γ)/p.α, -x^p.α) * x^(3-p.γ) / (3-p.γ)
 
+function gravitational_potential(x::Real, xt::Real, p::αβγProfile = nfwProfile) 
+    (p == nfwProfile) && return (log(1+x)/x -log(1+xt)/xt)
+    return - quadgk(xp -> μ_halo(xp, p) / xp^2, x, xt, rtol=1e-3)[1] 
+end
 
 ################################################
 #
@@ -112,7 +116,10 @@ rs(h::Halo) = h.rs * r_0
 
 velocity_dispersion(r::Real, rt::Real, h::Halo) = sqrt(G_NEWTON * Msun / Mpc / ρ_halo(r, h) *  quadgk(rp -> ρ_halo(rp, h) * m_halo(rp, h)/rp^2, r, rt, rtol=1e-3)[1]) / (km / s)  |> NoUnits 
 
+""" gravitational potential in (km/s)^2 """
+gravitational_potential(r::Real, rt::Real, h::Halo) = - 4 * π * h.ρs * h.rs^2 * G_NEWTON * Msun / Mpc / (km / s)^2 * gravitational_potential(r/h.rs, rt/h.rs, h.hp)  |> NoUnits 
 
-
+""" escape velocity in (km/s) """
+escape_velocity(r::Real, rt::Real, h::Halo) = sqrt(2*abs(gravitational_potential(r, rt, h)))
 
 end # module Halos
