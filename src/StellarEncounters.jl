@@ -216,6 +216,114 @@ function draw_velocity_kick(xp::Vector{<:Real}, subhalo::Halo, r::Real, ::Type{T
 end
 
 
+export draw_velocity_kick_complex
+
+""" nmem maximal number of iteration for the memory"""
+function draw_velocity_kick_complex(z::Vector{Complex{Float64}}, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1; nrep::Int = 1, nmem::Int = 10000) where {T<:HostModel} 
+
+    # initialisation for a given value of r
+    rs = subhalo.rs
+    nstars = number_stellar_encounter(r, T)
+    b_ms    = b_max(r, T) / rs 
+    inv_η  = _load_inverse_cdf_η(r, T)
+    xt     = jacobi_radius(r, subhalo, T) / rs
+
+    all(abs.(z) .> xt) && return false
+
+    nz = length(z) # size of the point vectors we want to look at
+    nmem  = (nmem ÷ nstars) * nstars # we want the memory maximal number to be a multiple of nstar
+    nturn = 1      # number of iteration we must do to not overload the memory
+    ndraw = nstars # number of draw at every iteraction according to the memory requirement
+    
+
+    if nstars*nrep > nmem
+        nturn = (nstars*nrep)÷nmem + 1
+        ndraw = nmem
+    end
+
+    dw  = Matrix{Complex{Float64}}(undef, nz, nrep)
+    _dw = Matrix{Complex{Float64}}(undef, nmem, nz)
+    
+    irep = 1
+
+    @info "nturn" nturn
+
+    for it in 1:nturn
+
+        # at the last step we only take the reminder number of draws necessary
+        (it == nturn) && (ndraw = (nstars*nrep) % nmem)
+
+        nchunks = (ndraw÷nstars)
+
+        # randomly sampling the distributions
+        β_norm = (b_ms .* sqrt.(rand(ndraw)))'
+        β  = β_norm .* exp.(- 2.0im  * π * rand(ndraw))'  # b/b_max assuming b_min = 0
+        η  = inv_η.(rand(ndraw))'
+        pm = pseudo_mass.(β_norm, xt, subhalo.hp) ./ β
+
+        _dw = η .* (pm .- 1.0 ./ (z .+ β))
+
+        # summing all the contributions
+        for j in 1:nchunks
+            dw[:, irep] = sum(_dw[:, (j-1)*nstars+1:j*nstars], dims = 2)'  
+            irep = irep + 1  
+        end
+    end
+
+    return dw
+end
+
+
+function draw_velocity_kick_complex(x::Vector{Float64}, ψ::Vector{Float64}, φ::Vector{Float64}, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1; nrep::Int = 1, nmem::Int = 10000) where {T<:HostModel} 
+    
+    nx = length(x) 
+    nψ = length(ψ)
+    nφ = length(φ)
+
+    z = [x[i] * sin(ψ[j]) * exp(-im*φ[k]) for (i, j, k) in one_to_three_dim(nx, nψ, nφ)]
+    res = draw_velocity_kick_complex(z, subhalo, r, T; nrep = nrep, nmem = nmem)
+
+    res_matrix = Array{Complex{Float64}, 4}(undef, nx, nψ, nφ, nrep)
+
+    for i=1:nx
+        for j=1:nψ
+            for k=1:nφ
+                res_matrix[i, j, k, :] = res[i + nx*(j-1) + nx*nψ*(k-1), :]
+            end
+        end
+    end
+
+    return res_matrix
+end
+
+
+function one_to_three_dim(ni::Int64, nj::Int64, nk::Int64)
+
+    ntot = ni * nj * nk 
+    res = [(1, 1, 1)]
+
+    for index = 2:ntot
+        push!(res, one_to_three_dim(index, ni, nj, nk))
+    end
+
+    return res
+
+end
+
+function one_to_three_dim(index::Int64, ni::Int64, nj::Int64, nk::Int64)
+
+    ntot = ni * nj * nk 
+    (index > ntot) && return false
+
+    (index%ni != 0) && (i = index%ni)
+    (index%ni == 0) && (i = ni)
+
+    j = convert(Int64, (index - i)/ni % nj + 1)
+    k = convert(Int64, (index - i - ni*(j-1))/(ni*nj) % nk + 1)
+    
+    return i, j, k
+end
+
 
 # ongoing work
 function pdf_dE(dE::Real, r::Real, dv::Vector{<:Real}, subhalo::Halo, ::Type{T}) where {T<:HostModel}
