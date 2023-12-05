@@ -6,7 +6,7 @@ include("./Hosts.jl")
 
 
 import QuadGK: quadgk
-using JLD2,  Interpolations, Roots, SpecialFunctions
+using JLD2,  Interpolations, Roots, SpecialFunctions, Base.Threads
 import Unitful: km, s, Gyr, K, Myr, NoUnits
 import UnitfulAstro: Mpc, Gpc, Msun
 import PhysicalConstants.CODATA2018: c_0, G as G_NEWTON
@@ -219,58 +219,73 @@ end
 export draw_velocity_kick_complex
 
 """ nmem maximal number of iteration for the memory"""
-function draw_velocity_kick_complex(z::Vector{Complex{Float64}}, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1; nrep::Int = 1, nmem::Int = 10000) where {T<:HostModel} 
+function draw_velocity_kick_complex(z::Vector{Complex{Float64}}, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1; 
+                                        nrep::Int = 1, nmem::Int = 1000000) where {T<:HostModel} 
 
     # initialisation for a given value of r
     rs = subhalo.rs
     nstars = number_stellar_encounter(r, T)
-    b_ms    = b_max(r, T) / rs 
+    β_max    = b_max(r, T) / rs 
+    β_min    = 0.0
     inv_η  = _load_inverse_cdf_η(r, T)
     xt     = jacobi_radius(r, subhalo, T) / rs
 
     all(abs.(z) .> xt) && return false
+    (nmem < nstars) && return false
 
     nz = length(z) # size of the point vectors we want to look at
     nmem  = (nmem ÷ nstars) * nstars # we want the memory maximal number to be a multiple of nstar
     nturn = 1      # number of iteration we must do to not overload the memory
     ndraw = nstars # number of draw at every iteraction according to the memory requirement
     
-
     if nstars*nrep > nmem
         nturn = (nstars*nrep)÷nmem + 1
         ndraw = nmem
     end
-
-    dw  = Matrix{Complex{Float64}}(undef, nz, nrep)
-    _dw = Matrix{Complex{Float64}}(undef, nmem, nz)
     
-    irep = 1
 
     @info "nturn" nturn
 
+    ######## initialisation
+    # the idea is to make all quantities thread safe 
+    # initialise the cut into chunks
+    # different behaviour for the last part
+    nchunks = [nmem÷nstars for i in 1:nturn]
+    nchunks[nturn] = ((nstars*nrep) % nmem) ÷ nstars
+    ndraws = [ndraw for i in 1:nturn]
+    ndraws[nturn] = (nstars*nrep) % nmem
+    
+    chunks = Matrix{Union{UnitRange{Int64}, Missing}}(missing, nturn, nmem÷nstars)
+    irep   = Matrix{Union{Int64, Missing}}(missing, nturn, nmem÷nstars) # index of the repetition
+
     for it in 1:nturn
-
-        # at the last step we only take the reminder number of draws necessary
-        (it == nturn) && (ndraw = (nstars*nrep) % nmem)
-
-        nchunks = (ndraw÷nstars)
-
-        # randomly sampling the distributions
-        β_norm = (b_ms .* sqrt.(rand(ndraw)))'
-        β  = β_norm .* exp.(- 2.0im  * π * rand(ndraw))'  # b/b_max assuming b_min = 0
-        η  = inv_η.(rand(ndraw))'
-        pm = pseudo_mass.(β_norm, xt, subhalo.hp) ./ β
-
-        _dw = η .* (pm .- 1.0 ./ (z .+ β))
-
-        # summing all the contributions
-        for j in 1:nchunks
-            dw[:, irep] = sum(_dw[:, (j-1)*nstars+1:j*nstars], dims = 2)'  
-            irep = irep + 1  
-        end
+        chunks[it, 1:nchunks[it]] .= [(j-1)*nstars+1:j*nstars for j in 1:nchunks[it]]
+        irep[it, 1:nchunks[it]] .= sum(nchunks[1:it-1]) .+ [j for j in 1:nchunks[it]]
     end
 
-    return dw
+    # initialisation of the result matrix
+    Δw = Matrix{Complex{Float64}}(undef, nz, nrep)
+    ###### end of initialisation
+
+    ###### entring the main loop
+    Threads.@threads for it in 1:nturn
+
+        # randomly sampling the distributions
+        β_norm = (sqrt.(rand(ndraws[it]) .* (β_max^2 - β_min^2) .+ β_min))
+        β  = β_norm .* exp.(- 2.0im  * π * rand(ndraws[it]))  # b/b_max assuming b_min = 0
+        η  = inv_η.(rand(ndraws[it]))
+        pm = pseudo_mass.(β_norm, xt, subhalo.hp) ./ β
+
+        δw = η .* (pm .- 1.0 ./ (z' .+ β))
+
+        # summing all the contributions
+        for j in 1:nchunks[it]
+            Δw[:, irep[it, j]] .= sum(δw'[:, chunks[it, j]], dims = 2)
+        end
+    end
+    ##### end of the main loop
+
+    return Δw
 end
 
 
@@ -280,14 +295,19 @@ function draw_velocity_kick_complex(x::Vector{Float64}, ψ::Vector{Float64}, φ:
     nψ = length(ψ)
     nφ = length(φ)
 
-    z = [x[i] * sin(ψ[j]) * exp(-im*φ[k]) for (i, j, k) in one_to_three_dim(nx, nψ, nφ)]
+    function z_vs_coord(x::Real, ψ::Real, φ::Real)
+        (φ == 2*π) && return (1.0 + 0.0im) * x * sin(ψ)
+        return x * sin(ψ) * exp(-im*φ)
+    end
+
+    z = [z_vs_coord(x[i], ψ[j], φ[k]) for (i, j, k) in one_to_three_dim(nx, nψ, nφ)]
     res = draw_velocity_kick_complex(z, subhalo, r, T; nrep = nrep, nmem = nmem)
 
     res_matrix = Array{Complex{Float64}, 4}(undef, nx, nψ, nφ, nrep)
 
-    for i=1:nx
+    for k=1:nφ
         for j=1:nψ
-            for k=1:nφ
+            for i=1:nx
                 res_matrix[i, j, k, :] = res[i + nx*(j-1) + nx*nψ*(k-1), :]
             end
         end
