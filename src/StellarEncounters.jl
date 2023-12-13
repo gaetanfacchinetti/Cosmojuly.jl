@@ -225,13 +225,14 @@ function draw_velocity_kick_complex(
     subhalo::Halo, r_host::Real, 
     xt::Union{Real, Nothing} = nothing, 
     ::Type{T} = MM17Gamma1; 
-    nrep::Int = 1, nmem::Int = 10000) where {T<:HostModel, S <:Real} 
+    nrep::Int = 1, nmem::Int = 10000,
+    ηb::Real = 0.0) where {T<:HostModel, S <:Real} 
 
     # initialisation for a given value of r
     rs = subhalo.rs
     nstars = number_stellar_encounter(r_host, T)
     β_max    = b_max(r_host, T) / rs 
-    β_min    = 0.0
+    β_min    = β_max * ηb
     inv_η  = _load_inverse_cdf_η(r_host, T)
 
     (xt === nothing) && (xt = jacobi_radius(r_host, subhalo, T) / rs)
@@ -301,13 +302,14 @@ function draw_velocity_kick_complex_approx(
     r_host::Real, 
     xt::Union{Real, Nothing} = nothing, 
     ::Type{T} = MM17Gamma1; 
-    nrep::Int = 1, nmem::Int = 10000) where {T<:HostModel, S <:Real}
+    nrep::Int = 1, nmem::Int = 10000,
+    ηb::Real = 0.0) where {T<:HostModel, S <:Real}
 
      # initialisation for a given value of r_host
     rs = subhalo.rs
     nstars = number_stellar_encounter(r_host, T)
     β_max    = b_max(r_host, T) / rs 
-    β_min    = 0.0
+    β_min    = β_max * ηb
     inv_η  = _load_inverse_cdf_η(r_host, T)
 
     (xt === nothing) && (xt = jacobi_radius(r_host, subhalo, T) / rs)
@@ -356,7 +358,7 @@ function draw_velocity_kick_complex_approx(
         η  = inv_η.(rand(ndraws[it]))
         pm = pseudo_mass.(β, xt, subhalo.hp)
 
-        δw = η .* sqrt.(pm.^2 .+ 3.0 .* (1.0 .- 2.0.*pm) ./ (3.0 .+ 2.0 .* (x'./ β).^2)) .* exp.(- 2.0im  * π * rand(ndraws[it]))
+        δw = η ./ β .* sqrt.(pm.^2 .+ 3.0 .* (1.0 .- 2.0.*pm) ./ (3.0 .+ 2.0 .* (x'./ β).^2)) .* exp.(- 2.0im  * π * rand(ndraws[it]))
 
         # summing all the contributions
         for j in 1:nchunks[it]
@@ -378,8 +380,8 @@ mutable struct VelocityKickDraw{S<:Real}
     ψ::Union{Vector{S}, StepRangeLen{S}, Nothing}
     φ::Union{Vector{S}, StepRangeLen{S}, Nothing}
     Δw::Array{Complex{S}}
-    Δw_approx::Union{Array{Complex{S}}, Nothing}
-    Δv0::Real
+    δv0::Real
+    ηb::Real
 end
 
 
@@ -391,56 +393,65 @@ function draw_velocity_kick_complex(
     rt::Union{Real, Nothing} = nothing,
     ::Type{T} = MM17Gamma1;
     r_host::Real = 8e-3, nrep::Int = 1, nmem::Int = 10000, 
-    dflt_ψ::S = π/2.0, dflt_φ::S = 0.0, compute_approx::Bool = false) where {T<:HostModel, S <: Real} 
+    dflt_ψ::S = π/2.0, dflt_φ::S = 0.0, approx::Bool = false, 
+    ηb::Real = 0.0) where {T<:HostModel, S <: Real} 
     
-    (ψ === nothing) && (ψ = [dflt_ψ]) 
-    (φ === nothing) && (φ = [dflt_φ])
-
-    nx = length(x) 
-    nψ = length(ψ)
-    nφ = length(φ)
-
-    # converting x, ψ and φ into a complex number
-    function _z_vs_coord(x::S, ψ::S, φ::S)
-        (φ == 2*π) && return (1.0 + 0.0im) * x * sin(ψ)
-        return x * sin(ψ) * exp(-im*φ)
-    end
 
     (rt === nothing) && (rt = jacobi_radius(r_host, subhalo, T))
-    
-    z = [_z_vs_coord(x[i], ψ[j], φ[k]) for (i, j, k) in one_to_three_dim(nx, nψ, nφ)]
-    Δw = draw_velocity_kick_complex(z, subhalo, r_host, rt/subhalo.rs , T; nrep = nrep, nmem = nmem)
 
-    # compute Δw_approx is compute_approx is true
-    Δw_approx = nothing
-    compute_approx && (Δw_approx = draw_velocity_kick_complex_approx(x, subhalo, r_host, rt/subhalo.rs , T; nrep = nrep, nmem = nmem))
+    if !approx 
 
-    res_array = Array{Complex{S}, 4}(undef, nx, nψ, nφ, nrep)
-    
-    for k=1:nφ, j=1:nψ
-        Threads.@threads for i=1:nx
-            res_array[i, j, k, :] = Δw[i + nx*(j-1) + nx*nψ*(k-1), :]
+        (ψ === nothing) && (ψ = [dflt_ψ]) 
+        (φ === nothing) && (φ = [dflt_φ])
+
+        nx = length(x) 
+        nψ = length(ψ)
+        nφ = length(φ)
+
+        # converting x, ψ and φ into a complex number
+        function _z_vs_coord(x::S, ψ::S, φ::S)
+            (φ == 2*π) && return (1.0 + 0.0im) * x * sin(ψ)
+            return x * sin(ψ) * exp(-im*φ)
         end
+        
+        z_array = [_z_vs_coord(_x, _ψ, _φ) for _x in x, _ψ in ψ, _φ in φ]
+        linear  =  LinearIndices(z_array)
+        z       = z_array[linear[:]]
+
+        #z = [_z_vs_coord(x[i], ψ[j], φ[k]) for (i, j, k) in one_to_three_dim(nx, nψ, nφ)]
+
+        Δw = draw_velocity_kick_complex(z, subhalo, r_host, rt/subhalo.rs , T; nrep = nrep, nmem = nmem, ηb = ηb)
+
+        res_array = Array{Complex{S}, 4}(undef, nx, nψ, nφ, nrep)
+        
+        for k=1:nφ, j=1:nψ
+            Threads.@threads for i=1:nx
+                #res_array[i, j, k, :] = Δw[i + nx*(j-1) + nx*nψ*(k-1), :]
+                res_array[i, j, k, :] = Δw[linear[i, j, k], :]
+            end
+        end
+
+        (nψ == 1 && nφ != 1) && (res_array = res_array[:, 1, :, :])
+        (nψ != 1 && nφ == 1) && (res_array = res_array[:, :, 1, :])
+        (nψ == 1 && nφ == 1) && (res_array = res_array[:, 1, 1, :])
+    else
+        res_array = draw_velocity_kick_complex_approx(x, subhalo, r_host, rt/subhalo.rs , T; nrep = nrep, nmem = nmem,  ηb = ηb)
     end
 
-    (nψ == 1 && nφ != 1) && (res_array = res_array[:, 1, :, :])
-    (nψ != 1 && nφ == 1) && (res_array = res_array[:, :, 1, :])
-    (nψ == 1 && nφ == 1) && (res_array = res_array[:, 1, 1, :])
-
-   
     # computing the normalisation
     σ = velocity_dispersion_spherical(r_host, T)
     vstar = circular_velocity(r_host, T)
     mstar_avg = moments_C03(1)
     v_avg = 1.0/average_inverse_relative_speed(σ, vstar)
 
-    dv0 = 2*G_NEWTON * mstar_avg * Msun / (v_avg * km /s)  / (subhalo.rs * Mpc) / (km/s) |> NoUnits
+    δv0 = 2*G_NEWTON * mstar_avg * Msun / (v_avg * km /s)  / (subhalo.rs * Mpc) / (km/s) |> NoUnits
 
-    return VelocityKickDraw(subhalo, rt, r_host, T, x, ψ, φ, res_array, Δw_approx, dv0)
+    return VelocityKickDraw(subhalo, rt, r_host, T, x, ψ, φ, res_array, δv0, ηb)
     
 end
 
 
+"""
 function one_to_three_dim(ni::Int64, nj::Int64, nk::Int64)
 
     res = [(1, 1, 1)]
@@ -466,7 +477,7 @@ function one_to_three_dim(index::Int64, ni::Int64, nj::Int64, nk::Int64)
     
     return i, j, k
 end
-
+"""
 
 # ongoing work
 function pdf_dE(dE::Real, r::Real, dv::Vector{<:Real}, subhalo::Halo, ::Type{T}) where {T<:HostModel}
@@ -476,18 +487,32 @@ function pdf_dE(dE::Real, r::Real, dv::Vector{<:Real}, subhalo::Halo, ::Type{T})
     res = sum(@. 1/dv * exp((dE - dv^2/2.0)^2/2.0/sigma^2/dv^2))
 end
 
-
-function ccdf_ΔE(ΔE::Real, draw::VelocityKickDraw{<:Real}, compute_approx::Bool = false)
+"""
+function mean_ΔE(draw::VelocityKickDraw{<:Real}, on_angle_ψ::Bool = false)
     
     dim   = length(size(draw.Δw))
     sigma = velocity_dispersion.(draw.x * draw.subhalo.rs, draw.rt, draw.subhalo)
+    Δv2   = draw.δv0^2 .* abs2.(draw.Δw)
+    ΔE    = Δv2 ./ 2.0
+
+    if on_angle_ψ
+        (length(size(ΔE)) < 3) && throw(ArgumentError())
+
+        a = selectdim((ΔE .* (sin.(draw.ψ))'), 2, 1:size-1)
+        b = selectdim((ΔE .* (sin.(draw.ψ))'), 2, 2:size)
+
+        return sum((a.+b) ./ 2.0 .* diff(draw.ψ)' , dims = 2)
+        
+    return ΔE
+end
+"""
+
+function ccdf_ΔE(ΔE::Real, draw::VelocityKickDraw{<:Real})
     
-    if !compute_approx
-        Δv2   = (draw.Δv0)^2 .* abs2.(draw.Δw)
-    else
-        Δv2   = (draw.Δv0)^2 .* abs2.(draw.Δw_approx)
-    end
-    
+    sigma = velocity_dispersion.(draw.x * draw.subhalo.rs, draw.rt, draw.subhalo)
+    dim   = length(size(draw.Δw))
+    Δv2   = (draw.δv0)^2 .* abs2.(draw.Δw) 
+
     return 0.5 .* (1 .+ mean(erf.((Δv2 ./ 2.0 .- ΔE) ./ (sqrt.(2.0 * Δv2) .* sigma )), dims = dim))
 end
 
@@ -495,33 +520,33 @@ function ccdf_ΔE_CL(ΔE::Real, draw::VelocityKickDraw{<:Real})
     
     dim        = length(size(draw.Δw))
     sigma      = velocity_dispersion.(draw.x * draw.subhalo.rs, draw.rt, draw.subhalo)
-    Δv2        = draw.Δv0^2 .* abs2.(draw.Δw)
-    ΔE_average = mean(Δv2 ./ 2.0 , dims = dim)
-    s          = ΔE_average./(2.0.*sigma)
+    Δv2        = draw.δv0^2 .* abs2.(draw.Δw)
+    ΔE_average = selectdim(mean(Δv2 ./ 2.0 , dims = dim), dim, 1)
+    s          = sqrt.(ΔE_average)./(2.0.*sigma)
     ξ          = sqrt.(1.0 .+ s.^2)./s
 
-    (ΔE  > 0) && return @. (1.0+ξ)/(2.0*ξ)*exp(-ΔE/(2*sigma)*(ξ-1.0))
-    (ΔE <=0) && return @. 1.0-(ξ-1.0)(2.0*ξ) *exp(ΔE/(2*sigma)*(1.0+ξ))
+    (ΔE  > 0) && return @. (1.0+ξ)/(2.0*ξ)*exp(-ΔE/(2.0*sigma^2)*(ξ-1.0))
+    (ΔE <=0) && return @. 1.0-(ξ-1.0)(2.0*ξ) *exp(ΔE/(2.0*sigma^2)*(1.0+ξ))
 end
 
-function ccdf_ΔE(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real}, compute_approx::Bool = false)
 
-    if !compute_approx
-        n = length(size(draw.Δw))
-        res_ΔE = Array{Float64, n}(undef, size(draw.Δw)[1:end-1]..., length(ΔE))
-    else
-        n = length(size(draw.Δw_approx))
-        res_ΔE = Array{Float64, n}(undef, size(draw.Δw_approx)[1:end-1]..., length(ΔE))
-    end
+## Need to change the conditions on n with selectdim() .= something
+function _ccdf_ΔE_array(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real}, ccdf_ΔE_single::Function)
 
-    Threads.@threads for index in 1:length(ΔE)
-        (n == 2) && (res_ΔE[:, index] .= ccdf_ΔE(ΔE[index], draw, compute_approx))
-        (n == 3) && (res_ΔE[:, :, index] .= ccdf_ΔE(ΔE[index], draw, compute_approx))
-        (n == 4) && (res_ΔE[:, :, :, index] .= ccdf_ΔE(ΔE[index], draw, compute_approx))
+    n = length(size(draw.Δw))
+    res_ΔE = Array{Float64, n}(undef, size(draw.Δw)[1:end-1]..., length(ΔE))
+
+    for index in eachindex(ΔE)
+        (n == 2) && (res_ΔE[:, index] .= ccdf_ΔE_single(ΔE[index], draw))
+        (n == 3) && (res_ΔE[:, :, index] .= ccdf_ΔE_single(ΔE[index], draw))
+        (n == 4) && (res_ΔE[:, :, :, index] .= ccdf_ΔE_single(ΔE[index], draw))
     end
 
     return res_ΔE
 end
+
+ccdf_ΔE(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real}) = _ccdf_ΔE_array(ΔE, draw, ccdf_ΔE)
+ccdf_ΔE_CL(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real}) = _ccdf_ΔE_array(ΔE, draw, ccdf_ΔE_CL)
 
 
 
