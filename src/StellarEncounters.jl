@@ -22,6 +22,7 @@ import Main.Cosmojuly.Hosts: ρ_stellar_disc, HostModel, σ_stellar_disc, circul
 export stellar_mass_function_C03, moments_C03, b_max, number_stellar_encounter, pdf_relative_speed, pdf_η, pseudo_mass, _pseudo_mass
 export w_parallel, w_perp, cdf_η, inverse_cdf_η, average_relative_speed, average_inverse_relative_speed
 export jacobi_radius, jacobi_scale
+export draw_velocity_kick_complex, VelocityKickDraw, ccdf_ΔE, ccdf_ΔE_CL
 
 """ result in (Msol^{-1}) from Chabrier 2003 """
 function stellar_mass_function_C03(m::Real)
@@ -216,7 +217,7 @@ function draw_velocity_kick(xp::Vector{<:Real}, subhalo::Halo, r::Real, ::Type{T
 end
 
 
-export draw_velocity_kick_complex, VelocityKickDraw, ccdf_ΔE, ccdf_ΔE_CL
+
 
 
 """ nmem maximal number of iteration for the memory"""
@@ -278,7 +279,7 @@ function draw_velocity_kick_complex(
     Threads.@threads for it in 1:nturn
 
         # randomly sampling the distributions
-        β_norm = (sqrt.(rand(ndraws[it]) .* (β_max^2 - β_min^2) .+ β_min))
+        β_norm = (sqrt.(rand(ndraws[it]) .* (β_max^2 - β_min^2) .+ β_min^2))
         β  = β_norm .* exp.(- 2.0im  * π * rand(ndraws[it]))  # b/b_max assuming b_min = 0
         η  = inv_η.(rand(ndraws[it]))
         pm = pseudo_mass.(β_norm, xt, subhalo.hp) ./ β
@@ -354,7 +355,7 @@ function draw_velocity_kick_complex_approx(
     Threads.@threads for it in 1:nturn
 
         # randomly sampling the distributions
-        β = (sqrt.(rand(ndraws[it]) .* (β_max^2 - β_min^2) .+ β_min)) # b/b_max assuming b_min = 0
+        β = (sqrt.(rand(ndraws[it]) .* (β_max^2 - β_min^2) .+ β_min^2)) # b/b_max assuming b_min = 0
         η  = inv_η.(rand(ndraws[it]))
         pm = pseudo_mass.(β, xt, subhalo.hp)
 
@@ -451,34 +452,6 @@ function draw_velocity_kick_complex(
 end
 
 
-"""
-function one_to_three_dim(ni::Int64, nj::Int64, nk::Int64)
-
-    res = [(1, 1, 1)]
-
-    for index = 2:(ni * nj * nk)
-        push!(res, one_to_three_dim(index, ni, nj, nk))
-    end
-
-    return res
-
-end
-
-function one_to_three_dim(index::Int64, ni::Int64, nj::Int64, nk::Int64)
-
-    ntot = ni * nj * nk 
-    (index > ntot) && return false
-
-    (index%ni != 0) && (i = index%ni)
-    (index%ni == 0) && (i = ni)
-
-    j = convert(Int64, (index - i)/ni % nj + 1)
-    k = convert(Int64, (index - i - ni*(j-1))/(ni*nj) % nk + 1)
-    
-    return i, j, k
-end
-"""
-
 # ongoing work
 function pdf_dE(dE::Real, r::Real, dv::Vector{<:Real}, subhalo::Halo, ::Type{T}) where {T<:HostModel}
     rt = jacobi_radius(r * subhalo.rs, subhalo, T)
@@ -487,67 +460,123 @@ function pdf_dE(dE::Real, r::Real, dv::Vector{<:Real}, subhalo::Halo, ::Type{T})
     res = sum(@. 1/dv * exp((dE - dv^2/2.0)^2/2.0/sigma^2/dv^2))
 end
 
-"""
-function mean_ΔE(draw::VelocityKickDraw{<:Real}, on_angle_ψ::Bool = false)
+
+
+function _reduced_array_on_angle(array::Union{Array{<:Complex}, Array{<:Real}}, draw::VelocityKickDraw{<:Real}, angle::Union{Symbol, Nothing} = nothing)
     
-    dim   = length(size(draw.Δw))
-    sigma = velocity_dispersion.(draw.x * draw.subhalo.rs, draw.rt, draw.subhalo)
-    Δv2   = draw.δv0^2 .* abs2.(draw.Δw)
-    ΔE    = Δv2 ./ 2.0
+    if (((angle !== :ψ) && (angle !== :φ)) || (angle === nothing))
+        return array
+    end
 
-    if on_angle_ψ
-        (length(size(ΔE)) < 3) && throw(ArgumentError())
+    angle_array  = getproperty(draw, angle)
+    (length(angle_array) == 1) && throw(ArgumentError("Only one value of angle " * angle * " in the draw cannot be reduced"))
 
-        a = selectdim((ΔE .* (sin.(draw.ψ))'), 2, 1:size-1)
-        b = selectdim((ΔE .* (sin.(draw.ψ))'), 2, 2:size)
+    # be default angle is ψ so the dimension on 
+    # which we average/reduce is the second one
+    # if angle is φ then we need to be carefull
+    dim = 2  
+    norm = 1.0  
+    if angle === :φ 
+        (length(draw.ψ) > 1)  && (dim = 3)
+        norm = 2.0 * π
+    end
+   
+    n_angle = length(angle_array)
 
-        return sum((a.+b) ./ 2.0 .* diff(draw.ψ)' , dims = 2)
+    # average using trapeze rule to evaluate the average value
+    if angle == :ψ
+        a = selectdim((array .* (sin.(angle_array))'), dim, 1:(n_angle-1))
+        b = selectdim((array .* (sin.(angle_array))'), dim, 2:n_angle)
+    elseif angle == :φ 
+        a = selectdim((array), dim, 1:(n_angle-1))
+        b = selectdim((array), dim, 2:n_angle)
+    end
+
+    return selectdim(sum((a.+b) ./ 2.0 .* diff(angle_array)' , dims = dim), dim, 1) ./ norm
+end
+
+function _reduced_array_on_angles(array::Union{Array{<:Complex}, Array{<:Real}}, draw::VelocityKickDraw{<:Real}; angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing)
+    
+    (typeof(angle) === Symbol) && (return _reduced_array_on_angle(array, draw, angle))
+    
+    (angle === nothing) && (return array)
+    (length(angle) < 1)  && (return array)
+    
+    (length(angle) == 1) && (return _reduced_array_on_angle(array, draw, angle[1]))
+    (length(angle) == 2) && (return _reduced_array_on_angle(_reduced_array_on_angle(array, draw, angle[1]), draw, angle[2]))
+
+end
+
+export Δv2, mean_ΔE, reduced_Δv2, reduced_mean_ΔE
+
+## some basic properties associated with the draw of the velocity kick
+Δv2(Δw::Array{<:Complex{<:Real}}, δv0::Real) = δv0^2 .* abs2.(Δw)
+Δv2(draw::VelocityKickDraw{<:Real}) = Δv2(draw.Δw, draw.δv0)
+mean_ΔE(Δw::Array{<:Complex{<:Real}}, δv0::Real) = selectdim(mean(Δv2(Δw, δv0), dims = length(size(Δw))), length(size(Δw)), 1) ./ 2.0
+mean_ΔE(draw::VelocityKickDraw{<:Real}) = mean_ΔE(draw.Δw, draw.δv0)
+
+## reduced (i.e. angle averaged) versions of the properties
+reduced_Δv2(draw::VelocityKickDraw{<:Real}; angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing) =  _reduced_array_on_angles(Δv2(draw), draw, angle = angle)
+reduced_mean_ΔE(draw::VelocityKickDraw{<:Real}; angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing) = _reduced_array_on_angles(mean_ΔE(draw), draw, angle = angle)
+
+function _reduced_array_size(draw::VelocityKickDraw{<:Real}; reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing)
+    
+    s = size(draw.Δw)
+    l = length(s)
+    
+    if reduce_angle === nothing
+        return s
+    else
         
-    return ΔE
-end
-"""
+        if typeof(reduce_angle) === Symbol || (typeof(reduce_angle) === Vector{Symbol} && length(reduce_angle) == 1)
+            (l == 4) && return (s[1:2], s[end])
+            (l == 3) && return (s[1], s[end])
+        end
+        if (typeof(reduce_angle) === Vector{Symbol} && length(reduce_angle) == 2)
+            (l == 4) && return (s[1], s[end])
+        end
+    end
 
-function ccdf_ΔE(ΔE::Real, draw::VelocityKickDraw{<:Real})
+    throw(ArgumentError("Trying to reduce an array of the wrong size"))
+end
+
+function ccdf_ΔE(ΔE::Real, draw::VelocityKickDraw{<:Real}; reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing)
     
     sigma = velocity_dispersion.(draw.x * draw.subhalo.rs, draw.rt, draw.subhalo)
-    dim   = length(size(draw.Δw))
-    Δv2   = (draw.δv0)^2 .* abs2.(draw.Δw) 
+    dim   = length(_reduced_array_size(draw, reduce_angle = reduce_angle))
+    Δv2   = reduced_Δv2(draw, angle = reduce_angle)
 
-    return 0.5 .* (1 .+ mean(erf.((Δv2 ./ 2.0 .- ΔE) ./ (sqrt.(2.0 * Δv2) .* sigma )), dims = dim))
+    return selectdim(0.5 .* (1 .+ mean(erf.((Δv2 ./ 2.0 .- ΔE) ./ (sqrt.(2.0 * Δv2) .* sigma )), dims = dim)), dim, 1)
 end
 
-function ccdf_ΔE_CL(ΔE::Real, draw::VelocityKickDraw{<:Real})
+function ccdf_ΔE_CL(ΔE::Real, draw::VelocityKickDraw{<:Real}; reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing)
     
-    dim        = length(size(draw.Δw))
-    sigma      = velocity_dispersion.(draw.x * draw.subhalo.rs, draw.rt, draw.subhalo)
-    Δv2        = draw.δv0^2 .* abs2.(draw.Δw)
-    ΔE_average = selectdim(mean(Δv2 ./ 2.0 , dims = dim), dim, 1)
-    s          = sqrt.(ΔE_average)./(2.0.*sigma)
-    ξ          = sqrt.(1.0 .+ s.^2)./s
+    sigma = velocity_dispersion.(draw.x * draw.subhalo.rs, draw.rt, draw.subhalo)
+    s     = sqrt.(reduced_mean_ΔE(draw, angle = reduce_angle ))./(2.0.*sigma)
+    ξ     = sqrt.(1.0 .+ s.^2)./s
 
     (ΔE  > 0) && return @. (1.0+ξ)/(2.0*ξ)*exp(-ΔE/(2.0*sigma^2)*(ξ-1.0))
     (ΔE <=0) && return @. 1.0-(ξ-1.0)(2.0*ξ) *exp(ΔE/(2.0*sigma^2)*(1.0+ξ))
 end
 
 
-## Need to change the conditions on n with selectdim() .= something
-function _ccdf_ΔE_array(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real}, ccdf_ΔE_single::Function)
+function _ccdf_ΔE_array(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real}, 
+    ccdf_ΔE_single::Function; reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing)
 
-    n = length(size(draw.Δw))
-    res_ΔE = Array{Float64, n}(undef, size(draw.Δw)[1:end-1]..., length(ΔE))
+    s = _reduced_array_size(draw, reduce_angle = reduce_angle)
+    res_ΔE = Array{Float64}(undef, s[1:end-1]..., length(ΔE))
 
     for index in eachindex(ΔE)
-        (n == 2) && (res_ΔE[:, index] .= ccdf_ΔE_single(ΔE[index], draw))
-        (n == 3) && (res_ΔE[:, :, index] .= ccdf_ΔE_single(ΔE[index], draw))
-        (n == 4) && (res_ΔE[:, :, :, index] .= ccdf_ΔE_single(ΔE[index], draw))
+        selectdim(res_ΔE, length(s), index) .= ccdf_ΔE_single(ΔE[index], draw, reduce_angle = reduce_angle)
     end
 
     return res_ΔE
 end
 
-ccdf_ΔE(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real}) = _ccdf_ΔE_array(ΔE, draw, ccdf_ΔE)
-ccdf_ΔE_CL(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real}) = _ccdf_ΔE_array(ΔE, draw, ccdf_ΔE_CL)
 
+
+ccdf_ΔE(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real};  reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing) = _ccdf_ΔE_array(ΔE, draw, ccdf_ΔE, reduce_angle= reduce_angle)
+ccdf_ΔE_CL(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real};  reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing) = _ccdf_ΔE_array(ΔE, draw, ccdf_ΔE_CL, reduce_angle=reduce_angle)
 
 
 

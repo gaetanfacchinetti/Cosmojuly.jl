@@ -114,7 +114,7 @@ rΔ(h::Halo{<:Real}, Δ::Real = 200, ρ_ref::Real = planck18_bkg.ρ_c0) = rΔ_fr
 ρs(h::Halo) = h.ρs * ρ_0
 rs(h::Halo) = h.rs * r_0
 
-velocity_dispersion(r::Real, rt::Real, h::Halo) = sqrt(G_NEWTON * Msun / Mpc / ρ_halo(r, h) *  quadgk(rp -> ρ_halo(rp, h) * m_halo(rp, h)/rp^2, r, rt, rtol=1e-3)[1]) / (km / s)  |> NoUnits 
+velocity_dispersion(r::Real, rt::Real, h::Halo) = sqrt(G_NEWTON * Msun / Mpc / ρ_halo(r, h) *  quadgk(rp -> ρ_halo(rp, h) * m_halo(rp, h)/rp^2, r, rt, rtol=1e-5)[1]) / (km / s)  |> NoUnits 
 
 """ gravitational potential in (km/s)^2 """
 gravitational_potential(r::Real, rt::Real, h::Halo) = - 4 * π * h.ρs * h.rs^2 * G_NEWTON * Msun / Mpc / (km / s)^2 * gravitational_potential(r/h.rs, rt/h.rs, h.hp)  |> NoUnits 
