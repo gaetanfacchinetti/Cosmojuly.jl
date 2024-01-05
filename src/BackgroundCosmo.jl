@@ -8,8 +8,9 @@ import PhysicalConstants.CODATA2018: c_0, G as G_NEWTON
 export planck18_bkg
 
 export BkgCosmology, FLRW
-export planck18_bkg, convert_cosmo, FlatFLRW
+export planck18_bkg, edsPlanck18_bkg, convert_cosmo, FlatFLRW
 export hubble_constant
+export Ω, Ω_vs_a
 export z_eq_mr, z_eq_Λm, z_to_a, a_to_z, universe_age, temperature_CMB_K, k_eq_mr_Mpc
 export growth_factor, growth_factor_Carroll
 export lookback_time, lookback_redshift
@@ -81,12 +82,12 @@ Creates a FlatFLRW instance
 - `T0_CMB_K::Real`: temperature of the CMB today (in Kelvin)
 - `Neff::Real`: effective number of neutrinos (dimensionless)
 """
-function FlatFLRW(h::Real, Ω_χ0::Real, Ω_b0::Real; T0_CMB_K::Real = 2.72548, Neff::Real = 3.04)
+function FlatFLRW(h::Real, Ω_χ0::Real, Ω_b0::Real; T0_CMB_K::Real = 2.72548, Neff::Real = 3.04, EdS::Bool = false)
     
     # Derived abundances
-    Ω_γ0 = 4.48131e-7 * T0_CMB_K^4 / h^2
-    Ω_ν0 = Neff * Ω_γ0 * (7 / 8) * (4 / 11)^(4 / 3)
-    Ω_r0 = Ω_γ0 + Ω_ν0
+    Ω_γ0 = EdS ? 0.0 : 4.48131e-7 * T0_CMB_K^4 / h^2
+    Ω_ν0 = EdS ? 0.0 : Neff * Ω_γ0 * (7 / 8) * (4 / 11)^(4 / 3)
+    Ω_r0 = EdS ? 0.0 : Ω_γ0 + Ω_ν0
     Ω_m0 = Ω_χ0 + Ω_b0
     Ω_Λ0 = 1 - Ω_m0 - Ω_r0
  
@@ -96,14 +97,14 @@ function FlatFLRW(h::Real, Ω_χ0::Real, Ω_b0::Real; T0_CMB_K::Real = 2.72548, 
     z_eq_Λm = 0.0
 
     try
-        z_eq_mr = exp(find_zero( y -> Ω_r(exp(y), Ω_m0, Ω_r0, Ω_Λ0) - Ω_m(exp(y), Ω_m0, Ω_r0, Ω_Λ0), (-10, 10), Bisection())) 
+        z_eq_mr = EdS ? NaN : exp(find_zero( y -> Ω_r(exp(y), Ω_m0, Ω_r0, Ω_Λ0) - Ω_m(exp(y), Ω_m0, Ω_r0, Ω_Λ0), (-10, 10), Bisection())) 
         z_eq_Λm = exp(find_zero( y -> Ω_Λ(exp(y), Ω_m0, Ω_r0, Ω_Λ0) - Ω_m(exp(y), Ω_m0, Ω_r0, Ω_Λ0), (-10, 10), Bisection())) 
     catch e
         println("Impossible to definez z_eq_mr and/or z_eq_Λm for this cosmology")
         println("Error: ", e)
     end
 
-    k_eq_mr_Mpc =  Ω_r0 / Ω_m0 * (100. * h * sqrt(Ω_m0 * (1+z_eq_mr)^3 + Ω_r0 * (1+z_eq_mr)^4 + Ω_Λ0) * km / s / c_0) |> NoUnits
+    k_eq_mr_Mpc =  EdS ? NaN : Ω_r0 / Ω_m0 * (100. * h * sqrt(Ω_m0 * (1+z_eq_mr)^3 + Ω_r0 * (1+z_eq_mr)^4 + Ω_Λ0) * km / s / c_0) |> NoUnits
 
     return FlatFLRW(promote(h, Ω_χ0, Ω_b0, Ω_m0, Ω_r0, Ω_γ0, Ω_ν0, Ω_Λ0, z_eq_mr, z_eq_Λm, k_eq_mr_Mpc, ρ_c0, T0_CMB_K)...) 
 end
@@ -122,7 +123,7 @@ const planck18_bkg::FlatFLRW = FlatFLRW(0.6736, 0.26447, 0.04930)
 
 Flat FLRW cosmology with [*Planck18*](https://arxiv.org/abs/1807.06209) parameters and no baryons
 """
-const edsPlanck18_bkg::FlatFLRW  = FlatFLRW(0.6736, 0.3, 0) 
+const edsPlanck18_bkg::FlatFLRW  = FlatFLRW(0.6736, 0.3, 0, EdS = true) 
 #########################################################
 
 #########################################################
@@ -156,6 +157,8 @@ abstract type DarkEnergy <: Species end
 #########################################################
 # Definition of the densities
 # All densities are in units of Msun / Mpc^3 
+
+export ρ_b_Msun_Mpc3
 
 """ Critical density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
 ρ_c_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.ρ_c0 * (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
@@ -194,20 +197,21 @@ abstract type DarkEnergy <: Species end
 Ω_b(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = (cosmo.Ω_b0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
 Ω_Λ(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_Λ0 / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
 
-Ω(::Type{Radiation}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = (cosmo.Ω_r0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω(::Type{Photons}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg)   = (cosmo.Ω_γ0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω(::Type{Neutrinos}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = (cosmo.Ω_ν0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω(::Type{Matter}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg)         = (cosmo.Ω_m0 * (1+z)^3) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω(::Type{ColdDarkMatter}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = (cosmo.Ω_χ0 * (1+z)^3) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω(::Type{Baryons}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg)    = (cosmo.Ω_b0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
-Ω(::Type{DarkEnergy}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) =  cosmo.Ω_Λ0 / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω(::Type{Radiation}, z::Real = 0.0, cosmo::BkgCosmology = planck18_bkg) = (cosmo.Ω_r0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω(::Type{Photons}, z::Real = 0.0, cosmo::BkgCosmology = planck18_bkg)   = (cosmo.Ω_γ0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω(::Type{Neutrinos}, z::Real = 0.0, cosmo::BkgCosmology = planck18_bkg) = (cosmo.Ω_ν0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω(::Type{Matter}, z::Real = 0.0, cosmo::BkgCosmology = planck18_bkg)         = (cosmo.Ω_m0 * (1+z)^3) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω(::Type{ColdDarkMatter}, z::Real = 0.0, cosmo::BkgCosmology = planck18_bkg) = (cosmo.Ω_χ0 * (1+z)^3) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω(::Type{Baryons}, z::Real = 0.0, cosmo::BkgCosmology = planck18_bkg)    = (cosmo.Ω_b0 * (1+z)^4) / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+Ω(::Type{DarkEnergy}, z::Real = 0.0, cosmo::BkgCosmology = planck18_bkg) =  cosmo.Ω_Λ0 / (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
 
 @doc raw"""
     Ω(T, z = 0, cosmo = planck18_bkg) where {T<:Species}
 
 Abundance of species `T` at redshift `z` and for the background cosmology `cosmo`
 """
-Ω(::Type{T}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) where {T<:Species} = Ω(T, z, cosmo)
+Ω(::Type{T}, z::Real = 0.0, cosmo::BkgCosmology = planck18_bkg) where {T<:Species} = Ω(T, z, cosmo)
+Ω_vs_a(::Type{T}, a::Real = 1.0,  cosmo::BkgCosmology = planck18_bkg) where {T<:Species} = Ω(T, a_to_z(a), cosmo)
 #########################################################
 
 k_eq_mr_Mpc(cosmo::BkgCosmology)::Real = cosmo.k_eq_mr_Mpc
