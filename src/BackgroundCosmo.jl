@@ -158,31 +158,46 @@ abstract type DarkEnergy <: Species end
 # Definition of the densities
 # All densities are in units of Msun / Mpc^3 
 
-export ρ_b_Msun_Mpc3
+export ρ_b_Msun_Mpc3, ρ_Msun_Mpc3
 
 """ Critical density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_c_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.ρ_c0 * (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
+ρ_c_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = cosmo.ρ_c0 * (cosmo.Ω_m0 * (1+z)^3 + cosmo.Ω_r0 * (1+z)^4 + cosmo.Ω_Λ0)
 
 """ Radiation density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_r_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_r0 * cosmo.ρ_c0 * (1+z)^4
+ρ_r_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = cosmo.Ω_r0 * cosmo.ρ_c0 * (1+z)^4
 
 """ Photon density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_γ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_γ0 * cosmo.ρ_c0 * (1+z)^4
+ρ_γ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = cosmo.Ω_γ0 * cosmo.ρ_c0 * (1+z)^4
 
 """ Neutrino density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_ν_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_ν0 * cosmo.ρ_c0 * (1+z)^4
+ρ_ν_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = cosmo.Ω_ν0 * cosmo.ρ_c0 * (1+z)^4
 
 """ Matter density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_m_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_m0 * cosmo.ρ_c0 * (1+z)^3
+ρ_m_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = cosmo.Ω_m0 * cosmo.ρ_c0 * (1+z)^3
 
 """ Cold dark matter density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_χ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_χ0 * cosmo.ρ_c0 * (1+z)^3
+ρ_χ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = cosmo.Ω_χ0 * cosmo.ρ_c0 * (1+z)^3
 
 """ Baryon density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_b_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_b0 * cosmo.ρ_c0 * (1+z)^3
+ρ_b_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = cosmo.Ω_b0 * cosmo.ρ_c0 * (1+z)^3
 
 """ Cosmological constant density (in Msun/Mpc^3) of the Universe at redshift `z` (by default z=0) for the cosmology `cosmo` """
-ρ_Λ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg)::Real = cosmo.Ω_Λ0 * cosmo.ρ_c0
+ρ_Λ_Msun_Mpc3(z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = cosmo.Ω_Λ0 * cosmo.ρ_c0
+
+
+ρ_Msun_Mpc3(::Type{Radiation}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = ρ_r_Msun_Mpc3(z, cosmo)
+ρ_Msun_Mpc3(::Type{Photons}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = ρ_γ_Msun_Mpc3(z, cosmo)
+ρ_Msun_Mpc3(::Type{Neutrinos}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = ρ_ν_Msun_Mpc3(z, cosmo)
+ρ_Msun_Mpc3(::Type{Matter}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = ρ_m_Msun_Mpc3(z, cosmo)
+ρ_Msun_Mpc3(::Type{Baryons}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = ρ_b_Msun_Mpc3(z, cosmo)
+ρ_Msun_Mpc3(::Type{DarkEnergy}, z::Real = 0, cosmo::BkgCosmology = planck18_bkg) = ρ_Λ_Msun_Mpc3(z, cosmo)
+
+@doc raw"""
+    ρ_Msun_Mpc3(T, z = 0, cosmo = planck18_bkg) where {T<:Species}
+
+Energy density of species `T` at redshift `z` and for the background cosmology `cosmo`
+"""
+ρ_Msun_Mpc3(::Type{T}, z::Real = 0.0, cosmo::BkgCosmology = planck18_bkg) where {T<:Species} = ρ_Msun_Mpc3(T, z, cosmo)
 #########################################################
 
 
