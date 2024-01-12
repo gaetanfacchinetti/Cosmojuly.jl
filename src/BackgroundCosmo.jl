@@ -60,6 +60,10 @@ struct FlatFLRW{T<:Real} <: FLRW{T}
 
 end
 
+Base.length(::BkgCosmology) = 1
+Base.iterate(iter::BkgCosmology) = (iter, nothing)
+Base.iterate(::BkgCosmology, state::Nothing) = nothing
+
 
 """ Convert cosmo object attributes to another type """
 convert_cosmo(::Type{T}, cosmo::FlatFLRW = planck18_bkg) where {T<:Real} = FlatFLRW{T}([convert(T, getfield(cosmo, field)) for field in fieldnames(typeof(cosmo))]...)

@@ -20,7 +20,7 @@ import Main.Cosmojuly.Hosts: ρ_stellar_disc, HostModel, σ_stellar_disc, circul
 ## STAR PROPERTIES
 
 export stellar_mass_function_C03, moments_C03, b_max, number_stellar_encounter, pdf_relative_speed, pdf_η, pseudo_mass, _pseudo_mass
-export w_parallel, w_perp, cdf_η, inverse_cdf_η, average_relative_speed, average_inverse_relative_speed
+export w_parallel, w_perp, cdf_η, inverse_cdf_η, average_relative_speed, average_inverse_relative_speed, average_inverse_relative_speed_sqr
 export jacobi_radius, jacobi_scale
 export draw_velocity_kick_complex, VelocityKickDraw, ccdf_ΔE, ccdf_ΔE_CL
 
@@ -57,6 +57,7 @@ function average_relative_speed(σ::Real, vstar::Real)
 end
 
 average_inverse_relative_speed(σ::Real, vstar::Real) = erf(vstar/(sqrt(2.0) * σ))/vstar
+average_inverse_relative_speed_sqr(σ::Real, vstar::Real) = sqrt(2.0)* dawson(vstar/(sqrt(2.0) * σ)) / (σ * vstar)
 
 """  η = m/<m> * <v>/v """
 function pdf_η(η::Real, σ::Real, vstar::Real, mstar_avg::Real, v_avg::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
@@ -149,8 +150,6 @@ end
 
 
 
-
-
 """ nmem maximal number of iteration for the memory"""
 function draw_velocity_kick(xp::Vector{<:Real}, subhalo::Halo, r::Real, ::Type{T} = MM17Gamma1; nrep::Int = 1, nmem::Int = 10000) where {T<:HostModel} 
 
@@ -220,10 +219,34 @@ end
 
 
 
-""" nmem maximal number of iteration for the memory"""
+@doc raw""" 
+    
+    draw_velocity_kick_complex(z, subhalo, xt, T; nrep, ηb) where {T<:HostModel}
+
+Returns a Monte-Carlo draw of the total velocity kick felt by the particles at
+complex positions `z::Vector{Complex{S}}` where S<:Real`, where 
+
+    ``z = r * \sin\psi * exp(-i\varphi)`` 
+
+inside the `subhalo::Halo` with dimensionless tidal radius `xt::Real = rt/rs` (where `rt` and `rs` 
+respectively are the tidal and scale radii). The number of crossed star is given by the distance 
+of the crossing from the center of the host galaxy `r_host::Real`. The properties of the host are 
+encoded into `T<:HostModel`. 
+
+The Monte-Carlo draw is done over `nrep::Int` iterations and we can play with `nmem::Int` the
+maximal size of arrays to minimise the impact on the memory. Note that because the routine is
+parallelised and a small value of `nmem` is prefered to make the most of the parallelisation.
+
+Returns
+-------
+- `Δw::Matrix{Complex{S}}` where `S<:Real``
+    Δv_x  + i Δv_y
+
+"""
 function draw_velocity_kick_complex(
     z::Vector{Complex{S}}, 
-    subhalo::Halo, r_host::Real, 
+    subhalo::Halo, 
+    r_host::Real, 
     xt::Union{Real, Nothing} = nothing, 
     ::Type{T} = MM17Gamma1; 
     nrep::Int = 1, nmem::Int = 10000,
@@ -297,6 +320,14 @@ function draw_velocity_kick_complex(
 end
 
 
+@doc raw""" 
+    
+    draw_velocity_kick_complex_approx(z, subhalo, xt, T; nrep, ηb) where {T<:HostModel}
+
+See `StellarEncounters.draw_velocity_kick_complex`. Same function but for an approximate experssion
+of the velocity kick per star (the equivalent definition defined in arXiv:2201.09788)
+
+"""
 function draw_velocity_kick_complex_approx(   
     x::Vector{S}, 
     subhalo::Halo, 
@@ -383,9 +414,11 @@ mutable struct VelocityKickDraw{S<:Real}
     Δw::Array{Complex{S}}
     δv0::Real
     ηb::Real
+    mean_ΔE_approx::Vector{<:Real}
 end
 
 
+""" x = r/rs """
 function draw_velocity_kick_complex(
     subhalo::Halo, 
     x::Union{Vector{S}, StepRangeLen{S}}, 
@@ -445,11 +478,51 @@ function draw_velocity_kick_complex(
     mstar_avg = moments_C03(1)
     v_avg = 1.0/average_inverse_relative_speed(σ, vstar)
 
+    mean_ΔE_approx = zeros(size(x)) 
+    println(r_host, )  
+    #approx && (mean_ΔE_approx = number_stellar_encounter(r_host, T) .*  mean_velocity_kick_approx_sqr(x, subhalo, r_host, rt/subhalo.rs, σ, vstar, T; ηb = ηb)) / 2.0
+
+
     δv0 = 2*G_NEWTON * mstar_avg * Msun / (v_avg * km /s)  / (subhalo.rs * Mpc) / (km/s) |> NoUnits
 
-    return VelocityKickDraw(subhalo, rt, r_host, T, x, ψ, φ, res_array, δv0, ηb)
+    return VelocityKickDraw(subhalo, rt, r_host, T, x, ψ, φ, res_array, δv0, ηb, mean_ΔE_approx)
     
 end
+
+
+export mean_velocity_kick_approx_sqr
+
+function mean_velocity_kick_approx_sqr(   
+    x::Vector{S}, 
+    subhalo::Halo, 
+    r_host::Real, 
+    xt::Union{Real, Nothing} = nothing, 
+    σ_host::Union{Real, Nothing} = nothing,
+    vstar::Union{Real, Nothing} = nothing,
+    ::Type{T} = MM17Gamma1; 
+    ηb::Real = 0.0) where {T<:HostModel, S <:Real}
+
+     # initialisation for a given value of r_host
+    rs = subhalo.rs
+    β_max  = b_max(r_host, T) / rs 
+    β_min  = β_max * ηb
+
+    (xt === nothing) && (xt = jacobi_radius(r_host, subhalo, T) / rs)
+    (σ_host === nothing) && (σ_host = velocity_dispersion_spherical(r_host, T))
+    (vstar === nothing) && (vstar = circular_velocity(r_host, T))
+
+    _pm(β::Real) = pseudo_mass(β, xt, subhalo.hp)
+    _to_integrate(β::Real) = _pm(β)^2 .+ 3.0*(1.0 - 2.0 *_pm(β))./(3.0 .+ 2.0 .* (x/β).^2)
+
+    integ = quadgk(lnβ -> _to_integrate(exp(lnβ)), log(β_min), log(β_max), rtol=1e-6)[1]
+    res = 8.0 * moments_C03(2) * average_inverse_relative_speed_sqr(σ_host, vstar) / rs^2 / (β_max^2 - β_min^2) .* integ
+    
+    pref = G_NEWTON^2 * Msun^2 / (km/s)^4 / Mpc^2 |> NoUnits
+
+    return res .* pref
+
+end
+
 
 
 # ongoing work
@@ -579,7 +652,6 @@ ccdf_ΔE(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDra
 ccdf_ΔE_CL(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real};  reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing) = _ccdf_ΔE_array(ΔE, draw, ccdf_ΔE_CL, reduce_angle=reduce_angle)
 
 
-
 export _save_inverse_cdf_η, _load_inverse_cdf_η
 
 function _save_inverse_cdf_η(r::Real, ::Type{T}) where {T<:HostModel}
@@ -691,6 +763,11 @@ jacobi_scale(r::Real, subhalo::Halo{<:Real}, ρ_host::Real, m_host::Real) = jaco
 jacobi_scale(r::Real, subhalo::Halo{<:Real}, ρ_host::Function, m_host::Function) = jacobi_scale(r, subhalo.ρs, subhalo.hp,  ρ_host(r), m_host(r))
 
 jacobi_radius(r::Real, subhalo::Halo{<:Real}, ::Type{T} = MM17Gamma1) where {T<:HostModel} = subhalo.rs * jacobi_scale(r, subhalo.ρs, subhalo.hp, T)
+
+
+#######################
+## FUNCTION FOR TESTS -> TO BE CLEANED
+
 
 
 #######################
