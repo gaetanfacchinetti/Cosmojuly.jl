@@ -47,30 +47,30 @@ function number_stellar_encounter(r::Real, ::Type{T}) where {T<:HostModel}
     return floor(Int, σ_stellar_disc(r, T) / moments_C03(1) * π / 1 * b_max(r, T)^2)
 end
 
-pdf_relative_speed(v::Real, σ::Real, vstar::Real) = (vstar^2 + v^2)/(2.0*σ^2) > 1e+2 ? 0.0 : sqrt(2.0/π) * v / (σ * vstar) * sinh(v * vstar / σ^2) *exp(-(vstar^2 + v^2)/(2.0*σ^2))
+pdf_relative_speed(v::Real, σ::Real, v_star::Real) = (v_star^2 + v^2)/(2.0*σ^2) > 1e+2 ? 0.0 : sqrt(2.0/π) * v / (σ * v_star) * sinh(v * v_star / σ^2) *exp(-(v_star^2 + v^2)/(2.0*σ^2))
 pdf_relative_speed(v::Real, r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = pdf_relative_speed(v, velocity_dispersion_spherical(r, T), circular_velocity(r, T))
 
-""" average relative speed in units of σ and vstar """
-function average_relative_speed(σ::Real, vstar::Real)
-    X = vstar / (sqrt(2.0) * σ)
+""" average relative speed in units of σ and v_star """
+function average_relative_speed(σ::Real, v_star::Real)
+    X = v_star / (sqrt(2.0) * σ)
     return σ * sqrt(2.0 / π) * (exp(-X^2) + sqrt(π)/2.0*(1+2*X^2)*erf(X)/X)
 end
 
-average_inverse_relative_speed(σ::Real, vstar::Real) = erf(vstar/(sqrt(2.0) * σ))/vstar
-average_inverse_relative_speed_sqr(σ::Real, vstar::Real) = sqrt(2.0)* dawson(vstar/(sqrt(2.0) * σ)) / (σ * vstar)
+average_inverse_relative_speed(σ::Real, v_star::Real) = erf(v_star/(sqrt(2.0) * σ))/v_star
+average_inverse_relative_speed_sqr(σ::Real, v_star::Real) = sqrt(2.0)* dawson(v_star/(sqrt(2.0) * σ)) / (σ * v_star)
 
 """  η = m/<m> * <v>/v """
-function pdf_η(η::Real, σ::Real, vstar::Real, mstar_avg::Real, v_avg::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
+function pdf_η(η::Real, σ::Real, v_star::Real, mstar_avg::Real, v_avg::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
     v_m = v_avg / mstar_avg
     v_max = 10^(1.80) * v_m
     v_min = 1e-5 * v_m
-    return  quadgk(lnv -> stellar_mass_function_C03((exp(lnv) / v_m * η)) * pdf_relative_speed(exp(lnv), σ, vstar) * exp(lnv)^2, log(v_min), log(v_max))[1] / v_m
+    return  quadgk(lnv -> stellar_mass_function_C03((exp(lnv) / v_m * η)) * pdf_relative_speed(exp(lnv), σ, v_star) * exp(lnv)^2, log(v_min), log(v_max))[1] / v_m
 end
 
-#cdf_η(η::Real, σ::Real, vstar::Real, mstar_avg::Real, v_avg::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = quadgk(lnu -> pdf_u(exp(lnu), r, σ, vstar, T) * exp(lnu), log(1e-12), log(u), rtol=1e-6)[1]
+#cdf_η(η::Real, σ::Real, v_star::Real, mstar_avg::Real, v_avg::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = quadgk(lnu -> pdf_u(exp(lnu), r, σ, v_star, T) * exp(lnu), log(1e-12), log(u), rtol=1e-6)[1]
 
-function cdf_η(η::Real, σ::Real, vstar::Real, mstar_avg::Real, v_avg::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel}
-    x = vstar / (sqrt(2.0) * σ)
+function cdf_η(η::Real, σ::Real, v_star::Real, mstar_avg::Real, v_avg::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel}
+    x = v_star / (sqrt(2.0) * σ)
     
     function integrand(m::Real)
         y = v_avg / (sqrt(2.0) * σ) * m / mstar_avg / η
@@ -83,8 +83,8 @@ function cdf_η(η::Real, σ::Real, vstar::Real, mstar_avg::Real, v_avg::Real, :
 end
 
 
-function inverse_cdf_η(rnd::Real, σ::Real, vstar::Real, mstar_avg::Real, v_avg::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
-    return exp(find_zero(lnu -> cdf_η(exp(lnu), σ, vstar, mstar_avg, v_avg, T) - rnd, (log(1e-8), log(1e+6)), Bisection(), rtol=1e-10, atol=1e-10)) 
+function inverse_cdf_η(rnd::Real, σ::Real, v_star::Real, mstar_avg::Real, v_avg::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} 
+    return exp(find_zero(lnu -> cdf_η(exp(lnu), σ, v_star, mstar_avg, v_avg, T) - rnd, (log(1e-8), log(1e+6)), Bisection(), rtol=1e-10, atol=1e-10)) 
 end
 
 export draw_velocity_kick
@@ -132,13 +132,13 @@ export draw_parameter_B
 
 draw_parameter_B(r::Real, ::Type{T} = MM17Gamma1; nstars::Int = number_stellar_encounter(r, T)) where {T<:HostModel}  = draw_parameter_B(r, velocity_dispersion_spherical(r, T), circular_velocity(r, T), T)
 
-function draw_parameter_B(r::Real, σ::Real, vstar::Real, ::Type{T} = MM17Gamma1; nstars::Int = number_stellar_encounter(r, T)) where {T<:HostModel} 
+function draw_parameter_B(r::Real, σ::Real, v_star::Real, ::Type{T} = MM17Gamma1; nstars::Int = number_stellar_encounter(r, T)) where {T<:HostModel} 
     
     # initialisation for a given value of r
     b_m   = b_max(r, T)
     inv_η = _load_inverse_cdf_η(r, T)
     mstar_avg = moments_C03(1)
-    v_avg     = 1.0/average_inverse_relative_speed(σ, vstar)
+    v_avg     = 1.0/average_inverse_relative_speed(σ, v_star)
 
     println("average velocity = ", v_avg, " km/s | mstat_avg = ", mstar_avg)
 
@@ -408,13 +408,15 @@ mutable struct VelocityKickDraw{S<:Real}
     rt::Real
     r_host::Real
     T_host_model::DataType
+    σ_host::Real
+    v_star::Real
     x::Union{Vector{S}, StepRangeLen{S}}
     ψ::Union{Vector{S}, StepRangeLen{S}, Nothing}
     φ::Union{Vector{S}, StepRangeLen{S}, Nothing}
     Δw::Array{Complex{S}}
     δv0::Real
     ηb::Real
-    mean_ΔE_approx::Vector{<:Real}
+    mean_ΔE_approx::Union{Vector{<:Real}, Nothing}
 end
 
 
@@ -473,24 +475,23 @@ function draw_velocity_kick_complex(
     end
 
     # computing the normalisation
-    σ = velocity_dispersion_spherical(r_host, T)
-    vstar = circular_velocity(r_host, T)
+    σ_host = velocity_dispersion_spherical(r_host, T)
+    v_star = circular_velocity(r_host, T)
     mstar_avg = moments_C03(1)
-    v_avg = 1.0/average_inverse_relative_speed(σ, vstar)
+    v_avg = 1.0/average_inverse_relative_speed(σ_host, v_star)
 
-    mean_ΔE_approx = zeros(size(x)) 
-    println(r_host, )  
-    #approx && (mean_ΔE_approx = number_stellar_encounter(r_host, T) .*  mean_velocity_kick_approx_sqr(x, subhalo, r_host, rt/subhalo.rs, σ, vstar, T; ηb = ηb)) / 2.0
+    mean_ΔE_approx = nothing 
+    approx && (ηb != 0.0) && (mean_ΔE_approx = number_stellar_encounter(r_host, T) .*  mean_velocity_kick_approx_sqr(x, subhalo, r_host, rt/subhalo.rs, σ_host, v_star, T; ηb = ηb)) / 2.0
 
 
     δv0 = 2*G_NEWTON * mstar_avg * Msun / (v_avg * km /s)  / (subhalo.rs * Mpc) / (km/s) |> NoUnits
 
-    return VelocityKickDraw(subhalo, rt, r_host, T, x, ψ, φ, res_array, δv0, ηb, mean_ΔE_approx)
+    return VelocityKickDraw(subhalo, rt, r_host, T, σ_host, v_star, x, ψ, φ, res_array, δv0, ηb, mean_ΔE_approx)
     
 end
 
 
-export mean_velocity_kick_approx_sqr
+export mean_velocity_kick_approx_sqr, median_ΔE_CL_approx, ccdf_ΔE_CL_approx
 
 function mean_velocity_kick_approx_sqr(   
     x::Vector{S}, 
@@ -498,7 +499,7 @@ function mean_velocity_kick_approx_sqr(
     r_host::Real, 
     xt::Union{Real, Nothing} = nothing, 
     σ_host::Union{Real, Nothing} = nothing,
-    vstar::Union{Real, Nothing} = nothing,
+    v_star::Union{Real, Nothing} = nothing,
     ::Type{T} = MM17Gamma1; 
     ηb::Real = 0.0) where {T<:HostModel, S <:Real}
 
@@ -509,19 +510,81 @@ function mean_velocity_kick_approx_sqr(
 
     (xt === nothing) && (xt = jacobi_radius(r_host, subhalo, T) / rs)
     (σ_host === nothing) && (σ_host = velocity_dispersion_spherical(r_host, T))
-    (vstar === nothing) && (vstar = circular_velocity(r_host, T))
+    (v_star === nothing) && (v_star = circular_velocity(r_host, T))
 
     _pm(β::Real) = pseudo_mass(β, xt, subhalo.hp)
     _to_integrate(β::Real) = _pm(β)^2 .+ 3.0*(1.0 - 2.0 *_pm(β))./(3.0 .+ 2.0 .* (x/β).^2)
 
     integ = quadgk(lnβ -> _to_integrate(exp(lnβ)), log(β_min), log(β_max), rtol=1e-6)[1]
-    res = 8.0 * moments_C03(2) * average_inverse_relative_speed_sqr(σ_host, vstar) / rs^2 / (β_max^2 - β_min^2) .* integ
+    res = 8.0 * moments_C03(2) * average_inverse_relative_speed_sqr(σ_host, v_star) / rs^2 / (β_max^2 - β_min^2) .* integ
     
     pref = G_NEWTON^2 * Msun^2 / (km/s)^4 / Mpc^2 |> NoUnits
 
     return res .* pref
 
 end
+
+function ccdf_ΔE_CL_approx(
+    ΔE::Union{Vector{<:Real}, Real}, 
+    x::Vector{S}, 
+    subhalo::Halo, 
+    r_host::Real, 
+    xt::Union{Real, Nothing} = nothing, 
+    σ_host::Union{Real, Nothing} = nothing,
+    v_star::Union{Real, Nothing} = nothing,
+    ::Type{T} = MM17Gamma1; 
+    ηb::Real = 0.0) where {T<:HostModel, S <:Real}
+
+    (xt === nothing) && (xt = jacobi_radius(r_host, subhalo, T) / rs)
+    (σ_host === nothing) && (σ_host = velocity_dispersion_spherical(r_host, T))
+    (v_star === nothing) && (v_star = circular_velocity(r_host, T))
+
+    σ_sub   = velocity_dispersion.(x * subhalo.rs, xt * subhalo.rs, subhalo)
+    n_stars = number_stellar_encounter(r_host, T)
+    dv2     = mean_velocity_kick_approx_sqr(x, subhalo, r_host, xt, σ_host, v_star, T, ηb = ηb)
+    s       = sqrt.(n_stars * dv2 / 8.0) ./ σ_sub
+    ξ       = sqrt.(1.0 .+ s.^2)./s
+
+    if isa(ΔE, Real)
+        (ΔE > 0) && return @. (1.0+ξ)/(2.0*ξ)*exp(-ΔE/(2.0*σ_sub^2)*(ξ-1.0))
+        (ΔE <=0) && return @. 1.0-(ξ-1.0)(2.0*ξ) *exp(ΔE/(2.0*σ_sub^2)*(1.0+ξ))
+    else
+        # to do
+        return 0.0
+    end
+end
+
+
+function ccdf_ΔE_CL_approx(ΔE::Union{Vector{<:Real}, Real}, draw::VelocityKickDraw{<:Real};  ηb::Real = 0.0)
+    return ccdf_ΔE_CL_approx(ΔE, draw.x, draw.subhalo, draw.r_host, draw.rt/draw.subhalo.rs, draw.σ_host, draw.v_star, draw.T_host_model, ηb=ηb)
+end
+
+
+function median_ΔE_CL_approx(
+    x::Vector{S}, 
+    subhalo::Halo, 
+    r_host::Real, 
+    xt::Union{Real, Nothing} = nothing, 
+    σ_host::Union{Real, Nothing} = nothing,
+    v_star::Union{Real, Nothing} = nothing,
+    ::Type{T} = MM17Gamma1; 
+    ηb::Real = 0.0) where {T<:HostModel, S <:Real}
+
+    (xt === nothing) && (xt = jacobi_radius(r_host, subhalo, T) / rs)
+    (σ_host === nothing) && (σ_host = velocity_dispersion_spherical(r_host, T))
+    (v_star === nothing) && (v_star = circular_velocity(r_host, T))
+
+    σ_sub   = velocity_dispersion.(x * subhalo.rs, xt * subhalo.rs, subhalo)
+    n_stars = number_stellar_encounter(r_host, T)
+    dv2     = mean_velocity_kick_approx_sqr(x, subhalo, r_host, xt, σ_host, v_star, T, ηb = ηb)
+    s       = sqrt.(n_stars * dv2 / 8.0) ./ σ_sub
+    ξ       = sqrt.(1.0 .+ s.^2)./s
+
+    return 2.0 .* (σ_sub.^2) ./ (ξ .-1.0).*log.(1.0 .+ 1.0 ./ ξ)
+end
+
+
+
 
 
 
@@ -556,7 +619,7 @@ function _reduced_array_on_angle(array::Union{Array{<:Complex}, Array{<:Real}}, 
    
     n_angle = length(angle_array)
 
-    # average using trapeze rule to evaluate the average value
+    # average using trapeze rule 
     if angle == :ψ
         a = selectdim((array .* (sin.(angle_array))'), dim, 1:(n_angle-1))
         b = selectdim((array .* (sin.(angle_array))'), dim, 2:n_angle)
@@ -622,15 +685,32 @@ function ccdf_ΔE(ΔE::Real, draw::VelocityKickDraw{<:Real}; reduce_angle::Union
     return selectdim(0.5 .* (1 .+ mean(erf.((Δv2 ./ 2.0 .- ΔE) ./ (sqrt.(2.0 * Δv2) .* sigma )), dims = dim)), dim, 1)
 end
 
+# Ongoing work !!
+function median_ΔE(draw::VelocityKickDraw{<:Real}; reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing)
+    
+    dim   = length(_reduced_array_size(draw, reduce_angle = reduce_angle))
+    res = Vector{Float64}(undef, 2)
+
+    for i in 1:dim 
+        _to_bisect(log10ΔE::Real) = (ccdf_ΔE(10.0.^log10ΔE, draw, reduce_angle = reduce_angle) .- 0.5)[i]
+        res[i] = 10.0.^(find_zero(_to_bisect, (-15, 0), Bisection()))
+    end
+
+    return res 
+end
+
 function ccdf_ΔE_CL(ΔE::Real, draw::VelocityKickDraw{<:Real}; reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing)
     
     sigma = velocity_dispersion.(draw.x * draw.subhalo.rs, draw.rt, draw.subhalo)
-    s     = sqrt.(reduced_mean_ΔE(draw, angle = reduce_angle ))./(2.0.*sigma)
+    _m_ΔE = draw.mean_ΔE_approx !== nothing ? draw.mean_ΔE_approx : reduced_mean_ΔE(draw, angle = reduce_angle)
+    s     = sqrt.(_m_ΔE)./(2.0.*sigma)
     ξ     = sqrt.(1.0 .+ s.^2)./s
 
     (ΔE  > 0) && return @. (1.0+ξ)/(2.0*ξ)*exp(-ΔE/(2.0*sigma^2)*(ξ-1.0))
     (ΔE <=0) && return @. 1.0-(ξ-1.0)(2.0*ξ) *exp(ΔE/(2.0*sigma^2)*(1.0+ξ))
 end
+
+
 
 
 function _ccdf_ΔE_array(ΔE::Union{Vector{<:Real}, StepRangeLen{<:Real}}, draw::VelocityKickDraw{<:Real}, 
@@ -657,9 +737,9 @@ export _save_inverse_cdf_η, _load_inverse_cdf_η
 function _save_inverse_cdf_η(r::Real, ::Type{T}) where {T<:HostModel}
     
     σ         = velocity_dispersion_spherical(r, T)
-    vstar     = circular_velocity(r, T)
+    v_star     = circular_velocity(r, T)
     mstar_avg = moments_C03(1)
-    v_avg     = 1.0/average_inverse_relative_speed(σ, vstar)
+    v_avg     = 1.0/average_inverse_relative_speed(σ, v_star)
 
     rnd_array = 10.0.^range(-8, -1e-12, 1000)
 
@@ -674,7 +754,7 @@ function _save_inverse_cdf_η(r::Real, ::Type{T}) where {T<:HostModel}
     end
     # -------------------------------------------
 
-    inv_cdf = inverse_cdf_η.(rnd_array, σ, vstar, mstar_avg, v_avg, T)
+    inv_cdf = inverse_cdf_η.(rnd_array, σ, v_star, mstar_avg, v_avg, T)
     jldsave("../cache/hosts/cdf_eta_" * string(hash_value, base=16) * ".jld2"; rnd = rnd_array, inverse_cdf_eta = inv_cdf)
 
     return true

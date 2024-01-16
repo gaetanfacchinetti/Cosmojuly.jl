@@ -61,6 +61,8 @@ function pdf_concentration(cΔ::Real, mΔ::Real; median::Function = median_conce
 end
 
 
+export median_concentration_SCP12
+
 #m200 in Msol
 function median_concentration_SCP12(mΔ::Real, h::Real)
     cn::Vector = [37.5153, -1.5093, 1.636e-2, 3.66e-4, -2.89237e-5, 5.32e-7]
