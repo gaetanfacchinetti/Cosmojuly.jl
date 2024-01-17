@@ -676,28 +676,89 @@ function _reduced_array_size(draw::VelocityKickDraw{<:Real}; reduce_angle::Union
     throw(ArgumentError("Trying to reduce an array of the wrong size"))
 end
 
-function ccdf_ΔE(ΔE::Real, draw::VelocityKickDraw{<:Real}; reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing)
-    
-    sigma = velocity_dispersion.(draw.x * draw.subhalo.rs, draw.rt, draw.subhalo)
-    dim   = length(_reduced_array_size(draw, reduce_angle = reduce_angle))
-    Δv2   = reduced_Δv2(draw, angle = reduce_angle)
-
-    return selectdim(0.5 .* (1 .+ mean(erf.((Δv2 ./ 2.0 .- ΔE) ./ (sqrt.(2.0 * Δv2) .* sigma )), dims = dim)), dim, 1)
+function ccdf_ΔE(ΔE::Real, Δv2::Union{Array{<:Real}, SubArray{<:Real}}, σ_sub::Union{Real, Vector{<:Real}})
+    dim_size   = length(size(Δv2)) 
+    return selectdim(0.5 .* (1 .+ mean(erf.((Δv2 ./ 2.0 .- ΔE) ./ (sqrt.(2.0 * Δv2) .* σ_sub )), dims = dim_size)), dim_size, 1)
 end
 
-# Ongoing work !!
+
+function ccdf_ΔE(ΔE::Real, draw::VelocityKickDraw{<:Real}; reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing,
+    indices::Union{Tuple{Vararg{Union{Int, UnitRange{Int}}}}, Union{Int, UnitRange{Int}}, Nothing} = nothing)
+
+    if indices === nothing
+        σ_sub = velocity_dispersion.(draw.x * draw.subhalo.rs, draw.rt, draw.subhalo)
+        return ccdf_ΔE(ΔE, reduced_Δv2(draw, angle = reduce_angle), σ_sub)
+    end
+
+
+    isa(indices, Union{Int, UnitRange{Int}}) && (indices = (indices..., ))
+    (length(indices) >= length(_reduced_array_size(draw, reduce_angle = reduce_angle))) && throw(ArgumentError("Indices should not have dimension larger than the reduced array."))
+    indices = (indices..., :)
+
+    σ_sub = velocity_dispersion.(draw.x[indices[1]] * draw.subhalo.rs, draw.rt, draw.subhalo)
+
+    return  ccdf_ΔE(ΔE, reduced_Δv2(draw, angle = reduce_angle)[indices...], σ_sub)
+end
+
+
+export median_ΔE, compare_median_ΔE
+
 function median_ΔE(draw::VelocityKickDraw{<:Real}; reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing)
     
-    dim   = length(_reduced_array_size(draw, reduce_angle = reduce_angle))
-    res = Vector{Float64}(undef, 2)
+    dim_size = _reduced_array_size(draw, reduce_angle = reduce_angle)[1:end-1]
+    res      = Array{Union{Missing, Float64}}(undef, dim_size...)
 
-    for i in 1:dim 
-        _to_bisect(log10ΔE::Real) = (ccdf_ΔE(10.0.^log10ΔE, draw, reduce_angle = reduce_angle) .- 0.5)[i]
-        res[i] = 10.0.^(find_zero(_to_bisect, (-15, 0), Bisection()))
+    for index in CartesianIndices(dim_size)
+        _to_bisect(log10ΔE::Real) = (ccdf_ΔE(10.0.^log10ΔE, draw, reduce_angle = reduce_angle, indices = Tuple(index)) .- 0.5)[1]
+        try
+            res[index] = 10.0.^(find_zero(_to_bisect, (-15, 0), Bisection()))
+        catch ArgumentError
+            res[index] = missing
+        end
     end
 
     return res 
 end
+
+
+function compare_median_ΔE(draw::VelocityKickDraw{<:Real}; q::Real=0.2)
+    
+    nstars = number_stellar_encounter(draw.r_host, draw.T_host_model)
+    ηb_0 = sqrt(1.0-(1.0-q)^(1.0/nstars))
+
+    reduce_angle::Vector{Symbol} = []
+
+    (length(draw.ψ) > 1) && push!(reduce_angle, :ψ)
+    (length(draw.φ) > 1) && push!(reduce_angle, :φ)
+    
+    median_ΔE_approx = median_ΔE_CL_approx(draw.x, draw.subhalo, draw.r_host, draw.rt/draw.subhalo.rs, draw.σ_host, draw.v_star, draw.T_host_model, ηb = ηb_0)
+    median_ΔE_exact  = median_ΔE(draw, reduce_angle=reduce_angle)
+
+    return abs.(median_ΔE_approx .- median_ΔE_exact) ./ median_ΔE_exact
+
+end
+
+
+function compare_median_ΔE(draws::Vector{VelocityKickDraw{Float64}}; q::Real=0.2)
+    
+    start_chunk::Vector{Int} = []
+    end_chunk::Vector{Int} = []
+
+    for d in draws
+        (end_chunk == []) && push!(start_chunk, 1)
+        (end_chunk != []) && push!(start_chunk, end_chunk[end]+ 1)
+        push!(end_chunk, start_chunk[end] + length(d.x)-1) 
+    end
+
+    res = Vector{Float64}(undef, end_chunk[end])
+ 
+    Threads.@threads for i in 1:length(draws)
+        res[start_chunk[i]:end_chunk[i]] .= compare_median_ΔE(draws[i], q=q)
+    end
+
+    return res
+end
+
 
 function ccdf_ΔE_CL(ΔE::Real, draw::VelocityKickDraw{<:Real}; reduce_angle::Union{Vector{Symbol}, Symbol, Nothing} = nothing)
     

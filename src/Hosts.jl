@@ -15,7 +15,7 @@ import Main.Cosmojuly.Halos: Halo, HaloProfile, nfwProfile, αβγProfile, halo_
 
 export ρ_HI, ρ_H2, ρ_ISM, ρ_baryons, ρ_baryons_spherical, host_halo, m_baryons_spherical, μ_baryons_spherical
 export host_profile, ρ_dm, m_host_spherical, μ_host_spherical, ρ_host_spherical, tidal_radius
-export HostModel, MM17Model, MM17Gamma1, MM17Gamma0, MM17GammaFree
+export HostModel, MM17Model, MM17Gamma1, MM17Gamma0, MM17GammaFree, DMOnlyMM17Gamma0
 export _save_host, _load_host
 
 # Definition of the profiles
@@ -133,6 +133,7 @@ m_host_spherical(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = m_baryo
 
 """ circular velocity in km/s for `r` in Mpc """
 circular_velocity(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = sqrt(G_NEWTON * m_host_spherical(r, T) * Msun / (r * Mpc)) / (km/s) |> NoUnits
+circular_velocity(r::Real, h::Halo) = sqrt(G_NEWTON * m_halo(r, h) * Msun / (r * Mpc)) / (km/s) |> NoUnits # should be moves to Halos.jl
 
 """ circular period in s for `r` in Mpc """
 circular_period(r::Real, ::Type{T} = MM17Gamma1) where {T<:HostModel} = 2.0 * π * r * Mpc / circular_velocity(r, T) / km  |> NoUnits
