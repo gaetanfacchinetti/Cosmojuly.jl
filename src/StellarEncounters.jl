@@ -734,7 +734,9 @@ function compare_median_ΔE(draw::VelocityKickDraw{<:Real}; q::Real=0.2)
     median_ΔE_approx = median_ΔE_CL_approx(draw.x, draw.subhalo, draw.r_host, draw.rt/draw.subhalo.rs, draw.σ_host, draw.v_star, draw.T_host_model, ηb = ηb_0)
     median_ΔE_exact  = median_ΔE(draw, reduce_angle=reduce_angle)
 
-    return abs.(median_ΔE_approx .- median_ΔE_exact) ./ median_ΔE_exact
+    score = median_ΔE_approx ./ median_ΔE_exact
+
+    return exp.(abs.(log.(score))) .- 1.0 
 
 end
 
