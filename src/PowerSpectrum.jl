@@ -159,7 +159,7 @@ Give the variance of the function `matter_ps` smoothed on region of size `R_Mpc`
 # Arguments
 - `R_Mpc`: radius in Mpc
 - `T`: type of Window 
-- `matter_ps`: function
+- `matter_ps`: function (dimensionless power spectrum)
 - `kws`: arguments passed to the integration routine `quadgk`
 """
 σ²(R_Mpc::Real, ::Type{T}, matter_ps::Function) where {T<:Window} = σ²(R_Mpc, T, matter_ps)
@@ -179,6 +179,8 @@ dσ²_dR(R_Mpc::Real, ::Type{T}, matter_ps::Function) where {T<:Window} = dσ²_
 dσ_dR(R_Mpc::Real, ::Type{T} = TopHat; cosmology::Cosmology = planck18) where {T<:Window} = dσ_dR(R_Mpc, T, k->matter_power_spectrum(k, 0, cosmology = cosmology, dimensionless = true))
 dσ_dR(R_Mpc::Real, ::Type{T}, matter_ps::Function) where {T<:Window} = 0.5 * dσ²_dR(R_Mpc, T, matter_ps) / σ(R_Mpc, T, matter_ps) 
 
+σ²_vs_M(M_Msun::Real, ::Type{T}, matter_ps::Function, bkg_cosmology::BkgCosmology = planck18_bkg) where {T<:Window} = σ²(radius_from_mass(M_Msun, T, bkg_cosmology), T, matter_ps)
+σ_vs_M(M_Msun::Real, ::Type{T}, matter_ps::Function, bkg_cosmology::BkgCosmology = planck18_bkg) where {T<:Window} = σ(radius_from_mass(M_Msun, T, bkg_cosmology), T, matter_ps)
 σ²_vs_M(M_Msun::Real, ::Type{T} = TopHat; cosmology::Cosmology = planck18) where {T<:Window} =  σ²(radius_from_mass(M_Msun, T, cosmology.bkg), T, cosmology = cosmology)
 σ_vs_M(M_Msun::Real, ::Type{T} = TopHat; cosmology::Cosmology = planck18) where {T<:Window} =  σ(radius_from_mass(M_Msun, T, cosmology.bkg), T, cosmology = cosmology)
 
@@ -190,6 +192,16 @@ end
 function dσ_dM(M_Msun::Real, ::Type{T} = TopHat; cosmology::Cosmology = planck18) where {T<:Window} 
     _R_Mpc = radius_from_mass(M_Msun, T, cosmology.bkg)
     return dσ_dR(_R_Mpc, T, cosmology = cosmology) * dradius_dmass(_R_Mpc, T, cosmology.bkg)
+end
+
+function dσ_dM(M_Msun::Real, ::Type{T}, matter_ps::Function, bkg_cosmology::BkgCosmology = planck18_bkg) where {T<:Window} 
+    _R_Mpc = radius_from_mass(M_Msun, T, bkg_cosmology)
+    return dσ_dR(_R_Mpc, T, matter_ps) * dradius_dmass(_R_Mpc, T, bkg_cosmology)
+end
+
+function dσ²_dM(M_Msun::Real, ::Type{T}, matter_ps::Function, bkg_cosmology::BkgCosmology = planck18_bkg) where {T<:Window} 
+    _R_Mpc = radius_from_mass(M_Msun, T, bkg_cosmology)
+    return dσ²_dR(_R_Mpc, T, matter_ps) * dradius_dmass(_R_Mpc, T, bkg_cosmology)
 end
 
 

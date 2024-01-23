@@ -43,14 +43,33 @@ function dn_dM(M_Msun::Real,
                 growth_function::Function = growth_factor_Carroll,
                 δ_c = 1.686) where {T<:Window, S<:MassFunctionType}
 
-    _D_z = growth_function(z, cosmology.bkg)
+    _D_z = growth_function(z, cosmology.bkg) / growth_function(0.0, cosmology.bkg)
     _σ = σ_vs_M(M_Msun, T, cosmology = cosmology) * _D_z
     _dσ_dM = dσ_dM(M_Msun, T,  cosmology = cosmology) * _D_z
     _ν = δ_c / _σ
 
-    return  ρ_m_Msun_Mpc3(0, cosmology.bkg) / M_Msun * abs(_dσ_dM) / _σ  * _ν  * f_mass_function(_ν, S)
+    return  ρ_m_Msun_Mpc3(0.0, cosmology.bkg) / M_Msun * abs(_dσ_dM) / _σ  * _ν  * f_mass_function(_ν, S)
 
 end
+
+""" Mass function for arbitrary matter power_spectrum """
+function dn_dM(M_Msun::Real, 
+    z::Real, 
+    matter_ps::Function,
+    ::Type{T} = TopHat, 
+    ::Type{S} = PressSchechter;
+    bkg_cosmology::BkgCosmology = planck18_bkg,    
+    growth_function::Function = growth_factor_Carroll,
+    δ_c = 1.686) where {T<:Window, S<:MassFunctionType}
+    
+    _D_z = growth_function(z, bkg_cosmology) / growth_function(0.0, bkg_cosmology)
+    _σ = σ_vs_M(M_Msun, T, matter_ps, bkg_cosmology) * _D_z
+    _dσ_dM = dσ_dM(M_Msun, T, matter_ps, bkg_cosmology) * _D_z
+    _ν = δ_c / _σ
+
+    return  ρ_m_Msun_Mpc3(0.0, bkg_cosmology) / M_Msun * abs(_dσ_dM) / _σ  * _ν  * f_mass_function(_ν, S)
+end
+
 
 
 #####################################
